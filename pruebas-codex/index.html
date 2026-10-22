@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CODEX FUNCIONANDO</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: #f1f5f9;
+      background: radial-gradient(ellipse at top, #183c48, transparent 65%), #080f1b;
+    }
+    main {
+      width: min(100%, 680px);
+      padding: clamp(28px, 7vw, 64px);
+      border: 1px solid #334657;
+      border-radius: 28px;
+      background: #101d2be6;
+      box-shadow: 0 28px 80px #0005;
+      text-align: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 13px;
+      border: 1px solid #345f59;
+      border-radius: 100px;
+      color: #a7f3d0;
+      font-size: 12px;
+      letter-spacing: 2px;
+    }
+    .badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #6ee7b7; }
+    h1 { margin: 28px 0 16px; font-size: clamp(30px, 6vw, 48px); letter-spacing: -1.5px; line-height: 1.1; }
+    .subtitle { color: #b5c4d4; line-height: 1.7; margin: 0 0 32px; }
+    button {
+      padding: 16px 24px;
+      border: 0;
+      border-radius: 12px;
+      background: #8bf0ca;
+      color: #09271e;
+      font: inherit;
+      font-weight: 750;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+    button:hover { background: #b3ffe2; transform: translateY(-2px); }
+    button:active { transform: translateY(0); }
+    button:focus-visible { outline: 3px solid #f1f5f9; outline-offset: 5px; }
+    .status { min-height: 52px; margin-top: 24px; }
+    #result { margin: 0; color: #a7f3d0; line-height: 1.6; }
+    footer { margin-top: 12px; font-size: 12px; color: #96a8bd; letter-spacing: 2px; }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">ENTORNO LOCAL</span>
+    <h1>CODEX FUNCIONANDO.</h1>
+    <p class="subtitle">Primera prueba de programación autónoma.</p>
+    <button id="test-button" type="button">PROBAR SISTEMA</button>
+    <div class="status">
+      <p id="result" role="status" aria-live="polite"></p>
+    </div>
+    <footer>HTML · CSS · JAVASCRIPT</footer>
+  </main>
+  <script>
+    const testButton = document.getElementById('test-button');
+    const result = document.getElementById('result');
+
+    testButton.addEventListener('click', () => {
+      result.textContent = 'Sistema funcionando correctamente';
+    });
+  </script>
+</body>
+</html>
