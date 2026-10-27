@@ -222,6 +222,7 @@
     @media(max-width:750px){.cost-report-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.cost-report-kpis{grid-template-columns:1fr}}
   </style>
 
+<link rel="stylesheet" href="./history.css"><script src="./history-core.js"></script>
 </head>
 
 <body>
@@ -267,7 +268,7 @@
       <div id="privateContent" hidden>
         <nav class="module-nav" aria-label="Módulos de OREPLANIX-Hole">
           <button type="button" id="navSondajes" class="module-tab active" aria-current="page">Sondajes y avances</button>
-          <button type="button" id="navCostos" class="module-tab">Costos</button>
+          <button type="button" id="navCostos" class="module-tab">Costos</button><button type="button" id="navHistorial" class="module-tab">Historial de importaciones</button>
         </nav>
         <div id="vistaSondajes">
 
@@ -599,6 +600,32 @@
           </section>
           <p class="costs-warning">Los costos TEST- registrados en Nazareth son pruebas; no se incluirán como gastos operativos en los reportes finales.</p>
         </section>
+<section id="vistaHistorial" class="panel" hidden aria-label="Historial de importaciones">
+ <div class="history-heading"><div><h2>Historial de importaciones</h2><p class="subtle">Consulta los lotes registrados, sus resultados y las observaciones disponibles.</p></div><span class="history-badge">CONSULTA DE LOTES</span></div>
+ <div class="history-filters">
+  <div><label for="histProject">Proyecto autorizado</label><select id="histProject"></select></div>
+  <div><label for="histDataset">Tipo de conjunto</label><select id="histDataset"><option value="">Todos</option><option value="COLLAR">Collar</option><option value="SURVEY">Survey</option><option value="DRILLING_PROGRESS">Avances</option><option value="COSTS">Costos</option><option value="GEOLOGY">Geología</option><option value="GEOMECHANICS">Geomecánica</option><option value="HYDROGEOLOGY">Hidrogeología</option></select></div>
+  <div><label for="histDiscipline">Disciplina</label><select id="histDiscipline"><option value="">Todas</option><option value="GEOLOGIA">Geología</option><option value="GEOMECANICA">Geomecánica</option><option value="HIDROGEOLOGIA">Hidrogeología</option><option value="GENERAL">General</option></select></div>
+  <div><label for="histStatus">Estado</label><select id="histStatus"><option value="">Todos</option><option value="PENDING">Pendiente</option><option value="PROCESSING">Procesando</option><option value="COMPLETED">Completado</option><option value="FAILED">Fallido</option></select></div>
+ </div>
+ <div class="history-tools"><button id="histRefresh" type="button">Actualizar historial</button><span id="histMessage" role="status" aria-live="polite">Selecciona un proyecto para consultar.</span></div>
+ <div class="table-wrap"><table><thead><tr><th>Lote / archivo</th><th>Tipo / disciplina</th><th>Fecha</th><th>Estado</th><th>Consistencia</th><th>Consulta</th></tr></thead><tbody id="histList"></tbody></table></div>
+ <div class="history-tools"><button id="histPrev" type="button" class="cat-secondary" disabled>Anterior</button><span id="histPage">Página 1</span><button id="histNext" type="button" class="cat-secondary" disabled>Siguiente</button></div>
+ <section id="histSummary" class="history-summary" hidden aria-label="Resumen del lote">
+  <h3 id="histSummaryTitle">Resumen del lote</h3><p id="histSummaryMessage" role="status"></p>
+  <div id="histCounters" class="history-counters"></div>
+  <p class="history-note">Los resultados describen las filas registradas. No certifican la integridad histórica del archivo original.</p>
+  <ul id="histIssues"></ul>
+  <button id="histRowsOpen" type="button">Consultar filas del lote</button><p class="subtle">El detalle requiere permisos ADMIN o EDITOR. La autorización la comprueba el servidor.</p>
+ </section>
+ <section id="histRows" class="history-summary" hidden aria-label="Filas del lote">
+  <h3>Detalle de filas</h3><label for="histOutcome">Resultado de fila</label><select id="histOutcome"><option value="">Todos</option><option value="IMPORTED">Importada</option><option value="INVALID">Inválida</option><option value="DUPLICATE">Duplicada</option><option value="UNRESOLVED">No resuelta</option></select>
+  <p id="histRowsMessage" role="status" aria-live="polite"></p>
+  <div class="table-wrap"><table><thead><tr><th>Fila</th><th>Resultado</th><th>Estado original</th><th>Errores originales</th><th>Datos originales</th></tr></thead><tbody id="histRowsList"></tbody></table></div>
+  <div class="history-tools"><button id="histRowsPrev" type="button" class="cat-secondary" disabled>Filas anteriores</button><span id="histRowsPage">Página 1</span><button id="histRowsNext" type="button" class="cat-secondary" disabled>Filas siguientes</button></div>
+ </section>
+</section>
+
       </div>
   </main>
 
@@ -649,6 +676,89 @@
     let validandoSurvey = false;
 
 
+
+    // Una generación distingue incluso salir de un proyecto y volver al mismo.
+    let contextoVersion=0, proyectoContexto="", authVersion=0, historialVersion=0, sesionContexto=null;
+    const escriturasPendientes=new Set();
+    const capturarContexto=()=>({version:contextoVersion,user:usuarioIdActual,project:el("proyecto").value});
+    const contextoVigente=c=>c.version===contextoVersion&&c.user===usuarioIdActual&&c.project===el("proyecto").value;
+    const PAGINACION={tamano:500,maxPaginas:10000};
+    async function leerPaginas(crearConsulta,vigente,procesarPagina){
+      const tamano=Math.min(1000,Math.max(1,Math.floor(PAGINACION.tamano)||500));
+      const filas=[],vistos=new Set();
+      let total=null;
+      for(let pagina=0;pagina<PAGINACION.maxPaginas;pagina++){
+        if(!vigente())throw new Error("Consulta obsoleta");
+        const desde=pagina*tamano;
+        const {data,error,count}=await crearConsulta().range(desde,desde+tamano-1);
+        if(!vigente())throw new Error("Consulta obsoleta");
+        if(error)throw error;
+        if(!Array.isArray(data)||!Number.isSafeInteger(count)||count<0)
+          throw new Error("No se pudo confirmar la integridad de la consulta");
+        if(total===null)total=count;
+        if(count!==total||data.length!==Math.min(tamano,Math.max(0,total-desde)))
+          throw new Error("La consulta cambió o recibió una página incompleta. Actualiza nuevamente.");
+        for(const fila of data){
+          const id=String(fila.id);
+          if(fila.id==null||vistos.has(id))throw new Error("Paginación inconsistente: identificadores repetidos");
+          vistos.add(id);
+        }
+        if(procesarPagina)procesarPagina(data);else filas.push(...data);
+        if(desde+data.length>=total)return {data:filas,error:null,count:total};
+      }
+      throw new Error("Consulta demasiado extensa. Reduce los filtros.");
+    }
+    function identidadSesion(sesion){
+      if(!sesion)return null;
+      try{
+        const payload=sesion.access_token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+        const sessionId=JSON.parse(atob(payload)).session_id;
+        if(sessionId)return `${sesion.user.id}:${sessionId}`;
+      }catch{}
+      return `${sesion.user.id}:${sesion.user.last_sign_in_at??""}`;
+    }
+    async function ejecutarEscritura(nombre,operacion,args){
+      args[0]?.preventDefault?.();
+      if(escriturasPendientes.has(nombre))return;
+      escriturasPendientes.add(nombre);
+      const contexto=capturarContexto();
+      try{return await operacion(...args);}catch(error){
+        if(contextoVigente(contexto)){
+          const destino={catGuardar:"catFormMessage",costGuardar:"costManualMessage",costCsvImport:"costCsvMessage",importarCSVSeguro:"csvImportMessage"}[nombre];
+          mensaje(destino,"No se confirmó la operación. Verifica el resultado antes de reintentar.","#b91c1c");
+        }
+      }finally{escriturasPendientes.delete(nombre);}
+    }
+    function actualizarContextoProyecto(){
+      const project=el("proyecto").value;
+      if(project===proyectoContexto)return;
+      proyectoContexto=project;contextoVersion++;historialVersion++;histReset();
+      catResetSesion();repReset();costCsvClear();limpiarCSV();
+      costLoadVersion++;costHoles=[];costCategories=[];costLimpiar();
+      for(const id of ["btnValidarCSV","btnValidarCollar","btnValidarSurvey","costCsvPrepare"])el(id).disabled=false;
+      el("costProjectName").textContent="—";
+    }
+    function limpiarDatosSesion(){
+      histReset();el("vistaHistorial").hidden=true;el("navHistorial").classList.remove("active");el("navHistorial").setAttribute("aria-current","false");
+      catResetSesion();repReset();costCsvClear();
+      costLoadVersion++;costHoles=[];costCategories=[];costLimpiar();
+      for(const id of ["btnValidarCSV","btnValidarCollar","btnValidarSurvey","costCsvPrepare"])el(id).disabled=false;
+      el("costProjectName").textContent="—";
+      el("loginForm").reset();el("loginMessage").textContent="";
+      el("csvDisciplina").selectedIndex=0;el("csvTipo").selectedIndex=0;el("csvEstado").selectedIndex=0;
+      actualizarEstadoCSV();
+      for(const id of ["csvTablaHead","csvTablaBody","csvValidationBody","collarValidationBody","surveyValidationBody","csvCamposEstandar","csvCamposDinamicos","repChartTypes","repChartDisc"])el(id).replaceChildren();
+      for(const id of ["csvImportSummary","costCsvSummary","repCount","repChartFootnote"])el(id).textContent="";
+      for(const id of ["repBudget","repCommitted","repActual"])el(id).textContent="—";
+      el("repCategory").replaceChildren(new Option("Todas",""));
+      for(const id of ["repDisc","repType","repFrom","repTo"])el(id).value="";
+      for(const id of ["csvTotalFilas","csvTotalColumnas","valTotal","valValid","valInvalid","valDuplicate","collarTotal","collarValid","collarInvalid","collarDuplicate","surveyTotal","surveyValid","surveyInvalid","surveyDuplicate","costCsvTotal","costCsvValid","costCsvInvalid","costCsvDuplicate"])el(id).textContent="0";
+      el("csvAvanceTotal").textContent="—";el("costCsvFields").textContent="";
+      el("repCurrency").value="USD";el("repIncludeTests").checked=false;
+      el("vistaSondajes").hidden=false;el("vistaCostos").hidden=true;
+      el("navSondajes").classList.add("active");el("navCostos").classList.remove("active");
+      el("navSondajes").setAttribute("aria-current","page");el("navCostos").setAttribute("aria-current","false");
+    }
 
     function cambiarEstado(texto){el("estadoConexion").textContent = texto;}
 
@@ -741,12 +851,14 @@
     }
 
     async function cargarProyectos(){
+      let contexto=capturarContexto();
 
       const solicitud=++solicitudActual;
 
       try{
 
-        const {data,error}=await supabaseClient.from("projects").select("id, project_name").order("project_name");
+        const {data,error}=await leerPaginas(()=>supabaseClient.from("projects").select("id, project_name",{count:"exact"}).order("project_name").order("id"),()=>contextoVigente(contexto)&&solicitud===solicitudActual);
+        if(!contextoVigente(contexto))return;
 
         if(error)throw error;
 
@@ -762,6 +874,7 @@
 
         }
 
+        actualizarContextoProyecto();contexto=capturarContexto();histProjects();
         sincronizarProyectoCSV();
 
         if(!proyectosDisponibles.length){
@@ -777,8 +890,9 @@
         }
 
         await mostrarDatos();
+        if(!contextoVigente(contexto))return;
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         if(solicitud!==solicitudActual)return;
 
@@ -795,6 +909,8 @@
     }
 
     async function mostrarDatos(){
+      actualizarContextoProyecto();
+      const contexto=capturarContexto();
 
       const solicitud=++solicitudActual;
 
@@ -818,9 +934,8 @@
 
       try{
 
-        const {data:sondajes,error:errorSondajes}=await supabaseClient.from("drillholes")
-
-          .select("id,hole_id,discipline").eq("project_id",idProyecto).order("hole_id");
+        const {data:sondajes,error:errorSondajes}=await leerPaginas(()=>supabaseClient.from("drillholes").select("id,hole_id,discipline",{count:"exact"}).eq("project_id",idProyecto).order("hole_id").order("id"),()=>contextoVigente(contexto));
+        if(!contextoVigente(contexto))return;
 
         if(errorSondajes)throw errorSondajes;
 
@@ -834,25 +949,10 @@
 
         if(ids.length){
 
-          // Paginación para evitar perder filas si se supera el límite por defecto de la API.
-
-          for(let desde=0;;desde+=500){
-
-            const {data,error}=await supabaseClient.from("drilling_progress")
-
-              .select("id,drillhole_id,advance_m").in("drillhole_id",ids)
-
-              .order("id").range(desde,desde+499);
-
-            if(error)throw error;
-
-            if(solicitud!==solicitudActual)return;
-
-            avances.push(...(data??[]));
-
-            if(!data||data.length<500)break;
-
-          }
+          const resultado=await leerPaginas(()=>supabaseClient.from("drilling_progress")
+            .select("id,drillhole_id,advance_m",{count:"exact"}).in("drillhole_id",ids).order("id"),
+            ()=>contextoVigente(contexto)&&solicitud===solicitudActual);
+          avances=resultado.data;
 
         }
 
@@ -886,7 +986,7 @@
 
         console.log("Datos reales cargados desde Supabase:",proyecto.project_name,lista.length,total);
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         if(solicitud!==solicitudActual)return;
 
@@ -915,12 +1015,11 @@
       const nuevoId=user?.id??null;
 
       if(usuarioIdActual!==nuevoId){
-        catResetSesion();repReset();
-
+        contextoVersion++;historialVersion++;
         usuarioIdActual=nuevoId;
-        costCsvClear();
+        limpiarDatosSesion();
 
-        limpiarPanel();
+        limpiarPanel();proyectoContexto="";
 
         if(conectado)cargarProyectos();
 
@@ -1064,7 +1163,7 @@
 
         },
 
-        error(error){console.error("Error leyendo CSV:",error);mensaje("csvMensaje","No se pudo leer el CSV.","#b91c1c");}
+        error(error){if(versionInicial!==versionCSV)return;console.error("Error leyendo CSV:",error);mensaje("csvMensaje","No se pudo leer el CSV.","#b91c1c");}
 
       });
 
@@ -1121,6 +1220,7 @@
     }
 
     async function validarCSV(){
+      const contexto=capturarContexto();
 
       const csv=csvTemporal;
 
@@ -1153,18 +1253,21 @@
       try{
 
         const {data:autenticacion,error:errorUsuario}=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
 
         if(errorUsuario||!autenticacion?.user||autenticacion.user.id!==usuarioIdActual)throw new Error("Sesión no válida. Vuelve a iniciar sesión.");
 
         const idProyecto=Number(csv.proyecto);
 
         const {data:proyecto,error:errorProyecto}=await supabaseClient.from("projects").select("id").eq("id",idProyecto).maybeSingle();
+        if(!contextoVigente(contexto))return;
 
         if(errorProyecto||!proyecto)throw new Error("Proyecto no autorizado para este usuario.");
 
-        const {data:sondajes,error:errorSondajes}=await supabaseClient.from("drillholes").select("id,hole_id")
+        const {data:sondajes,error:errorSondajes}=await leerPaginas(()=>supabaseClient.from("drillholes").select("id,hole_id",{count:"exact"})
 
-          .eq("project_id",idProyecto).eq("discipline",csv.disciplina);
+          .eq("project_id",idProyecto).eq("discipline",csv.disciplina).order("id"),()=>contextoVigente(contexto));
+        if(!contextoVigente(contexto))return;
 
         if(errorSondajes)throw errorSondajes;
 
@@ -1178,25 +1281,11 @@
 
         if(ids.length&&fechas.length){
 
-          // Páginas explícitas: sin truncamiento silencioso de la detección de duplicados.
-
-          for(let desde=0;;desde+=500){
-
-            const {data,error}=await supabaseClient.from("drilling_progress")
-
-              .select("id,drillhole_id,report_date")
-
-              .in("drillhole_id",ids).gte("report_date",fechas[0]).lte("report_date",fechas[fechas.length-1])
-
-              .order("id").range(desde,desde+499);
-
-            if(error)throw error;
-
-            for(const a of data??[])existentes.add(String(a.drillhole_id)+"|"+a.report_date);
-
-            if(!data||data.length<500)break;
-
-          }
+          const resultado=await leerPaginas(()=>supabaseClient.from("drilling_progress")
+            .select("id,drillhole_id,report_date",{count:"exact"})
+            .in("drillhole_id",ids).gte("report_date",fechas[0]).lte("report_date",fechas[fechas.length-1]).order("id"),
+            ()=>contextoVigente(contexto)&&versionInicial===versionCSV);
+          for(const a of resultado.data)existentes.add(String(a.drillhole_id)+"|"+a.report_date);
 
         }
 
@@ -1262,7 +1351,7 @@
 
         console.log("Resultados validación:",resultados);
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         if(versionInicial===versionCSV&&csvTemporal===csv){
 
@@ -1366,11 +1455,13 @@
 
 
 
-    async function importarCSVSeguro(){
+    function importarCSVSeguro(...args){return ejecutarEscritura("importarCSVSeguro",importarCSVSeguroOperacion,args);}
+    async function importarCSVSeguroOperacion(){
+      const contexto=capturarContexto();
 
       if(importacionEnCurso)return;
 
-      const csv=csvTemporal;
+      const csv=csvTemporal, versionPreparada=versionCSV;
 
       const boton=el("btnImportarCSV");
 
@@ -1409,6 +1500,7 @@
       try{
 
         const respuesta=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
 
         if(respuesta.error||respuesta.data?.user?.id!==usuarioIdActual)
 
@@ -1416,7 +1508,7 @@
 
         usuario=respuesta.data.user;
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         mensaje("csvImportMessage",error.message,"#b91c1c");return;
 
@@ -1426,6 +1518,7 @@
 
       if(!proyecto){mensaje("csvImportMessage","Proyecto no autorizado.","#b91c1c");return;}
 
+      if(csvTemporal!==csv||versionCSV!==versionPreparada)return;
       const versionConfirmacion=versionCSV;
 
       const candidatos=candidatosValidos(csv);
@@ -1480,7 +1573,10 @@
 
         if(csv.tipo!=="DRILLING_PROGRESS")parametros.p_data_type=csv.estado;
 
+        if(!contextoVigente(contexto))return;
+
         const {data,error}=await supabaseClient.rpc(RUTAS_IMPORTACION[csv.tipo],parametros);
+        if(!contextoVigente(contexto))return;
 
         if(error)throw error;
 
@@ -1507,6 +1603,7 @@
           // mostrarDatos() reinicia la vista previa pero conserva la información del lote.
 
           if(csv.tipo==="DRILLING_PROGRESS")await mostrarDatos();
+          if(!contextoVigente(contexto))return;
 
           el("csvImportResult").hidden=false;
 
@@ -1518,7 +1615,7 @@
 
         console.log("Importación confirmada por PostgreSQL:",data);
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         console.error("Resultado de importación no confirmado:",error);
 
@@ -1530,7 +1627,7 @@
 
         importacionEnCurso=false;
 
-        boton.disabled=true;
+        if(contextoVigente(contexto))boton.disabled=true;
 
       }
 
@@ -1581,6 +1678,7 @@
     }
 
     async function validarCollar(){
+      const contexto=capturarContexto();
 
       const csv=csvTemporal;
 
@@ -1633,24 +1731,23 @@
       try{
 
         const {data:auth,error:authError}=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
 
         if(authError||!auth?.user||auth.user.id!==usuarioInicial)throw new Error("Sesión inválida.");
 
         const {data:proyecto,error:errorProyecto}=await supabaseClient.from("projects")
 
           .select("id").eq("id",Number(csv.proyecto)).maybeSingle();
+        if(!contextoVigente(contexto))return;
 
         if(errorProyecto||!proyecto)throw new Error("Proyecto no autorizado.");
 
-        const {data:sondajes,error:errorSondajes}=await supabaseClient.from("drillholes")
+        const {data:sondajes,error:errorSondajes}=await leerPaginas(()=>supabaseClient.from("drillholes").select("id,hole_id",{count:"exact"}).eq("project_id",Number(csv.proyecto))
 
-          .select("id,hole_id").eq("project_id",Number(csv.proyecto))
-
-          .eq("discipline",csv.disciplina).limit(1000);
+          .eq("discipline",csv.disciplina).order("id"),()=>contextoVigente(contexto));
+        if(!contextoVigente(contexto))return;
 
         if(errorSondajes)throw errorSondajes;
-
-        if(sondajes.length>=1000)throw new Error("Demasiados sondajes. Se requiere paginación.");
 
         const mapa=new Map(sondajes.map(s=>[s.hole_id,String(s.id)]));
 
@@ -1660,15 +1757,12 @@
 
         if(ids.length){
 
-          const {data:collars,error:errorCollars}=await supabaseClient.from("collars")
+          const {data:collars,error:errorCollars}=await leerPaginas(()=>supabaseClient.from("collars").select("id,drillhole_id,data_type",{count:"exact"}).in("drillhole_id",ids)
 
-            .select("drillhole_id,data_type").in("drillhole_id",ids)
-
-            .eq("data_type",estado).limit(1000);
+            .eq("data_type",estado).order("id"),()=>contextoVigente(contexto));
+          if(!contextoVigente(contexto))return;
 
           if(errorCollars)throw errorCollars;
-
-          if(collars.length>=1000)throw new Error("Demasiados Collars. Se requiere paginación.");
 
           for(const c of collars)existentes.add(String(c.drillhole_id)+"|"+c.data_type);
 
@@ -1760,7 +1854,7 @@
 
         habilitarImportacionSegunValidacion(csv);
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         if(versionInicial===versionCSV&&csvTemporal===csv){
 
@@ -1811,6 +1905,7 @@
     }
 
     async function validarSurvey(){
+      const contexto=capturarContexto();
 
       if(validandoSurvey||importacionEnCurso)return;
 
@@ -1855,24 +1950,23 @@
       try{
 
         const {data:auth,error:errorAuth}=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
 
         if(errorAuth||!auth?.user||auth.user.id!==usuarioInicial)throw new Error("Debes iniciar sesión.");
 
         const {data:proyecto,error:errorProyecto}=await supabaseClient.from("projects")
 
           .select("id").eq("id",Number(csv.proyecto)).maybeSingle();
+        if(!contextoVigente(contexto))return;
 
         if(errorProyecto||!proyecto)throw new Error("Proyecto no autorizado.");
 
-        const {data:sondajes,error:errorSondajes}=await supabaseClient.from("drillholes")
+        const {data:sondajes,error:errorSondajes}=await leerPaginas(()=>supabaseClient.from("drillholes").select("id,hole_id",{count:"exact"}).eq("project_id",Number(csv.proyecto))
 
-          .select("id,hole_id").eq("project_id",Number(csv.proyecto))
-
-          .eq("discipline",csv.disciplina).limit(1000);
+          .eq("discipline",csv.disciplina).order("id"),()=>contextoVigente(contexto));
+        if(!contextoVigente(contexto))return;
 
         if(errorSondajes)throw errorSondajes;
-
-        if(sondajes.length>=1000)throw new Error("Demasiados sondajes. Se requiere paginación.");
 
         const mapa=new Map(sondajes.map(s=>[s.hole_id,String(s.id)]));
 
@@ -1880,23 +1974,17 @@
 
         if(ids.length){
 
-          const {data:estaciones,error:errorSurvey}=await supabaseClient.from("surveys")
-
-            .select("drillhole_id,depth").in("drillhole_id",ids).eq("data_type",estado).limit(1000);
+          const {data:estaciones,error:errorSurvey}=await leerPaginas(()=>supabaseClient.from("surveys").select("id,drillhole_id,depth",{count:"exact"}).in("drillhole_id",ids).eq("data_type",estado).order("id"),()=>contextoVigente(contexto));
+          if(!contextoVigente(contexto))return;
 
           if(errorSurvey)throw errorSurvey;
 
-          if(estaciones.length>=1000)throw new Error("Demasiadas estaciones. Se requiere paginación.");
-
           for(const e of estaciones)existentes.add(String(e.drillhole_id)+"|"+Number(e.depth));
 
-          const {data:collars,error:errorCollars}=await supabaseClient.from("collars")
-
-            .select("drillhole_id,total_depth").in("drillhole_id",ids).eq("data_type",estado).limit(1000);
+          const {data:collars,error:errorCollars}=await leerPaginas(()=>supabaseClient.from("collars").select("id,drillhole_id,total_depth",{count:"exact"}).in("drillhole_id",ids).eq("data_type",estado).order("id"),()=>contextoVigente(contexto));
+          if(!contextoVigente(contexto))return;
 
           if(errorCollars)throw errorCollars;
-
-          if(collars.length>=1000)throw new Error("Demasiados Collars. Se requiere paginación.");
 
           for(const c of collars)profundidadesCollar.set(String(c.drillhole_id),Number(c.total_depth));
 
@@ -1916,7 +2004,7 @@
 
           if(depth===null||depth<0)errores.push("Depth inválido");
 
-          if(azimuth===null||azimuth<0||azimuth>360)errores.push("Azimuth fuera de rango");
+          if(azimuth===null||azimuth<0||azimuth>=360)errores.push("Azimuth fuera de rango: debe ser mayor o igual a 0 y menor que 360");
 
           if(dip===null||dip< -90||dip>90)errores.push("Dip fuera de rango");
 
@@ -1951,6 +2039,7 @@
         }
 
         const {data:authFinal,error:errorAuthFinal}=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
 
         if(errorAuthFinal||authFinal?.user?.id!==usuarioInicial||
 
@@ -1998,7 +2087,7 @@
 
         habilitarImportacionSegunValidacion(csv);
 
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
 
         if(versionInicial===versionCSV&&csvTemporal===csv){
 
@@ -2052,8 +2141,8 @@
       return td;
     }
     async function catCargar(){
+      const contexto=capturarContexto();
       const turno = ++catRequest, proyectoId = catProyectoActual();
-      catLimpiarFormulario();
       el("catTable").replaceChildren();
       el("catAuditTable").replaceChildren();
       el("catAuditMessage").textContent = "Elige una categoría y pulsa Historial.";
@@ -2065,9 +2154,9 @@
       }
       catTxt("catListMessage", "Consultando categorías...");
       try{
-        const {data,error} = await supabaseClient.from("cost_categories")
-          .select("id,project_id,cost_code,category_name,description,discipline,is_active,extra_data")
-          .eq("project_id",proyectoId).order("cost_code").limit(1000);
+        const {data,error} = await leerPaginas(()=>supabaseClient.from("cost_categories").select("id,project_id,cost_code,category_name,description,discipline,is_active,extra_data",{count:"exact"})
+          .eq("project_id",proyectoId).order("cost_code").order("id"),()=>contextoVigente(contexto)&&turno===catRequest);
+        if(!contextoVigente(contexto))return;
         if(error)throw error;
         if(turno!==catRequest || proyectoId!==catProyectoActual())return;
         categoriaLista = data ?? [];
@@ -2092,7 +2181,7 @@
           el("catTable").appendChild(tr);
         }
         catTxt("catListMessage", `${categoriaLista.length} categoría(s) en ${p.project_name}.`);
-      }catch(error){
+      }catch(error){if(!contextoVigente(contexto))return;
         if(turno===catRequest)catTxt("catListMessage", "Error consultando categorías: " + error.message,false);
       }
     }
@@ -2113,16 +2202,18 @@
       catTxt("catFormMessage", "Puedes editar nombre, descripción, estado y atributos; código y disciplina no cambian.");
     }
     async function catHistorial(cat){
+      const contexto=capturarContexto();
       const proyectoId = catProyectoActual();
       if(Number(cat.project_id)!==proyectoId)return;
-      const turno = catRequest;
+      const turno = catRequest, historial=++historialVersion;
       el("catAuditTable").replaceChildren();
       catTxt("catAuditMessage", "Consultando historial de " + cat.cost_code + "...");
       const {data,error} = await supabaseClient.from("cost_category_audit")
         .select("action_type,changed_at,changed_by")
         .eq("project_id",proyectoId).eq("category_id",cat.id)
-        .order("changed_at",{ascending:false}).limit(100);
-      if(turno!==catRequest || proyectoId!==catProyectoActual())return;
+        .order("changed_at",{ascending:false}).order("id",{ascending:false}).limit(100);
+      if(!contextoVigente(contexto))return;
+      if(turno!==catRequest || historial!==historialVersion || proyectoId!==catProyectoActual())return;
       if(error){catTxt("catAuditMessage","No se pudo consultar la auditoría: " + error.message,false);return;}
       for(const a of data ?? []){
         const tr = document.createElement("tr");
@@ -2133,7 +2224,9 @@
       }
       catTxt("catAuditMessage", `${(data ?? []).length} evento(s) de ${cat.cost_code} (máximo 100).`);
     }
-    async function catGuardar(evt){
+    function catGuardar(...args){return ejecutarEscritura("catGuardar",catGuardarOperacion,args);}
+    async function catGuardarOperacion(evt){
+      const contexto=capturarContexto();
       evt.preventDefault();
       if(catGuardando)return;
       const proyectoId = catProyectoActual();
@@ -2141,8 +2234,9 @@
       let extra;
       try{extra = JSON.parse(el("catExtra").value.trim() || "{}");
         if(extra===null || Array.isArray(extra) || typeof extra!=="object")throw new Error("JSON no es un objeto");
-      }catch(error){catTxt("catFormMessage","Atributos JSONB inválidos: " + error.message,false);return;}
+      }catch(error){if(!contextoVigente(contexto))return;catTxt("catFormMessage","Atributos JSONB inválidos: " + error.message,false);return;}
       const {data:auth,error:authError} = await supabaseClient.auth.getUser();
+      if(!contextoVigente(contexto))return;
       if(authError || auth?.user?.id !== usuarioIdActual){catTxt("catFormMessage","Sesión no válida.",false);return;}
       const editando = categoriaEditando;
       const funcion = editando ? "update_cost_category_secure" : "create_cost_category_secure";
@@ -2160,15 +2254,19 @@
       el("catSave").disabled=true;
       catTxt("catFormMessage","Guardando mediante función SQL segura...");
       try{
+        if(!contextoVigente(contexto))return;
         const {data,error} = await supabaseClient.rpc(funcion,params);
+        if(!contextoVigente(contexto))return;
         if(error)throw error;
         if(proyectoId!==catProyectoActual() || auth.user.id!==usuarioIdActual)return;
         catTxt("catFormMessage",`Respuesta SQL: ${data?.status ?? "sin estado"}. ${data?.message ?? ""}`,data?.status!=="DUPLICATE");
         if(["CREATED","UPDATED","UNCHANGED"].includes(data?.status)){
+          catLimpiarFormulario();
           await catCargar();
+          if(!contextoVigente(contexto))return;
           catTxt("catFormMessage",`Operación verificada por RPC: ${data.status}.`);
         }
-      }catch(error){catTxt("catFormMessage","No se confirmó la operación: " + error.message,false);}
+      }catch(error){if(!contextoVigente(contexto))return;catTxt("catFormMessage","No se confirmó la operación: " + error.message,false);}
       finally{catGuardando=false;el("catSave").disabled=false;}
     }
 
@@ -2202,18 +2300,19 @@
       else{hole.disabled=false;if([...hole.options].some(o=>o.value===holePrevio))hole.value=holePrevio;}
     }
     async function costCargar(){
+      const contexto=capturarContexto();
       const version=++costLoadVersion, projectId=catProyectoActual(),userId=usuarioIdActual;
       const proyecto=proyectosDisponibles.find(p=>Number(p.id)===projectId);
       el("costProjectName").textContent=proyecto?.project_name??"—";
-      costHoles=[];costCategories=[];costOptions();
       if(!projectId||!catPermitido(projectId)||!userId){costMsg("Sin proyecto autorizado.",false);return;}
       costMsg("Consultando categorías y sondajes...");
       try{
         // Lectura independiente del catálogo para no depender de la pestaña anterior.
         const [catResult,holeResult]=await Promise.all([
-          supabaseClient.from("cost_categories").select("id,cost_code,category_name,discipline,is_active").eq("project_id",projectId).order("cost_code").limit(1000),
-          supabaseClient.from("drillholes").select("hole_id,discipline").eq("project_id",projectId).order("hole_id").limit(1000)
+          leerPaginas(()=>supabaseClient.from("cost_categories").select("id,cost_code,category_name,discipline,is_active",{count:"exact"}).eq("project_id",projectId).order("cost_code").order("id"),()=>contextoVigente(contexto)&&version===costLoadVersion),
+          leerPaginas(()=>supabaseClient.from("drillholes").select("id,hole_id,discipline",{count:"exact"}).eq("project_id",projectId).order("hole_id").order("id"),()=>contextoVigente(contexto)&&version===costLoadVersion)
         ]);
+        if(!contextoVigente(contexto))return;
         if(catResult.error)throw catResult.error;
         if(holeResult.error)throw holeResult.error;
         if(version!==costLoadVersion||userId!==usuarioIdActual||projectId!==catProyectoActual())return;
@@ -2221,13 +2320,15 @@
         costHoles=holeResult.data??[];
         costOptions();
         costMsg(`Catálogo actualizado: ${categoriaLista.filter(x=>x.is_active).length} categorías activas y ${costHoles.length} sondajes.`);
-      }catch(e){if(version===costLoadVersion)costMsg("No se pudo actualizar: "+e.message,false);}
+      }catch(e){if(!contextoVigente(contexto))return;if(version===costLoadVersion)costMsg("No se pudo actualizar: "+e.message,false);}
     }
     function costLimpiar(){
       el("costManualForm").reset();el("costExtra").value="{}";el("costQuantity").value="1";
       el("costCategory").value="";costOptions();costMoney();costMsg("Formulario limpio. No se guardaron datos.");
     }
-    async function costGuardar(ev){
+    function costGuardar(...args){return ejecutarEscritura("costGuardar",costGuardarOperacion,args);}
+    async function costGuardarOperacion(ev){
+      const contexto=capturarContexto();
       ev.preventDefault();if(costSubmitting)return;
       const projectId=catProyectoActual(),userId=usuarioIdActual;
       if(!catPermitido(projectId)||!userId){costMsg("Proyecto no autorizado.",false);return;}
@@ -2240,9 +2341,10 @@
       if(el("costHole").value&&!costHoles.some(d=>d.hole_id===el("costHole").value&&d.discipline===el("costDiscipline").value)){costMsg("Sondaje incompatible.",false);return;}
       let extra;
       try{extra=JSON.parse(el("costExtra").value.trim()||"{}");if(!extra||typeof extra!=="object"||Array.isArray(extra))throw Error("Debe ser un objeto JSON");}
-      catch(e){costMsg("JSONB inválido: "+e.message,false);return;}
+      catch(e){if(!contextoVigente(contexto))return;costMsg("JSONB inválido: "+e.message,false);return;}
       if(el("costDescription").value.trim())extra.CostDescription=el("costDescription").value.trim();
       const {data:auth,error:authError}=await supabaseClient.auth.getUser();
+      if(!contextoVigente(contexto))return;
       if(authError||auth?.user?.id!==userId){costMsg("Sesión no válida.",false);return;}
       const params={
         p_project_id:projectId,p_cost_entry_id:reference,p_cost_date:el("costDate").value,
@@ -2255,7 +2357,9 @@
       if(!window.confirm(`¿Registrar REALMENTE el costo ${reference} en ${proyecto?.project_name}?\nTipo: ${params.p_cost_type} · Moneda: ${params.p_currency}\n${el("costCalculated").textContent}\n\nNo se sobrescribirán costos existentes.`))return;
       costSubmitting=true;el("costSave").disabled=true;costMsg("Registrando mediante SQL seguro...");
       try{
+        if(!contextoVigente(contexto))return;
         const {data,error}=await supabaseClient.rpc("create_cost_entry_secure",params);
+        if(!contextoVigente(contexto))return;
         if(error)throw error;
         if(userId!==usuarioIdActual||projectId!==catProyectoActual())return;
         if(data?.status==="CREATED"){
@@ -2263,7 +2367,7 @@
           el("costEntryId").value="";
         }else if(data?.status==="DUPLICATE")costMsg(`DUPLICATE · ${reference}: ya existe. No se modificó el costo original.`,false);
         else costMsg("Respuesta no reconocida; verifica PostgreSQL: "+JSON.stringify(data),false);
-      }catch(e){costMsg("No se confirmó la operación: "+e.message+". Verifica PostgreSQL antes de reintentar.",false);}
+      }catch(e){if(!contextoVigente(contexto))return;costMsg("No se confirmó la operación: "+e.message+". Verifica PostgreSQL antes de reintentar.",false);}
       finally{costSubmitting=false;el("costSave").disabled=false;}
     }
 
@@ -2286,6 +2390,7 @@
       const d=new Date(t+"T00:00:00Z");return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===t;
     };
     async function costCsvPrepare(){
+      const contexto=capturarContexto();
       if(costCsvBusy)return;
       costCsvClearInternal();
       const serial=costCsvSerial, id=Number(el("proyecto").value), user=usuarioIdActual;
@@ -2297,6 +2402,7 @@
       costCsvSay("Leyendo el CSV y consultando referencias autorizadas...");
       try{
         const parsed=await new Promise((resolve,reject)=>Papa.parse(file,{header:true,skipEmptyLines:"greedy",bom:true,complete:resolve,error:reject}));
+        if(!contextoVigente(contexto))return;
         const fields=parsed.meta.fields||[], rows=parsed.data||[];
         if(parsed.errors?.length)throw Error("Errores de estructura CSV: "+parsed.errors[0].message);
         if(!fields.length||fields.some(f=>!f.trim())||new Set(fields).size!==fields.length)throw Error("Encabezados vacíos o repetidos.");
@@ -2304,22 +2410,26 @@
         if(missing.length)throw Error("Faltan columnas: "+missing.join(", "));
         if(rows.length<1||rows.length>500)throw Error("El archivo debe contener entre 1 y 500 filas.");
         const a=await supabaseClient.auth.getUser();
+        if(!contextoVigente(contexto))return;
         if(a.error||a.data?.user?.id!==user)throw Error("Sesión no válida.");
         const [cr,dr]=await Promise.all([
-          supabaseClient.from("cost_categories").select("cost_code,discipline,is_active").eq("project_id",id).limit(1000),
-          supabaseClient.from("drillholes").select("hole_id,discipline").eq("project_id",id).limit(1000)
+          leerPaginas(()=>supabaseClient.from("cost_categories").select("id,cost_code,discipline,is_active",{count:"exact"}).eq("project_id",id).order("id"),()=>contextoVigente(contexto)&&serial===costCsvSerial),
+          leerPaginas(()=>supabaseClient.from("drillholes").select("id,project_id,hole_id,discipline",{count:"exact"}).eq("project_id",id).order("id"),()=>contextoVigente(contexto)&&serial===costCsvSerial)
         ]);
+        if(!contextoVigente(contexto))return;
         if(cr.error)throw cr.error;if(dr.error)throw dr.error;
-        if(cr.data.length===1000||dr.data.length===1000)throw Error("Catálogo o sondajes alcanzaron límite de consulta; se necesita paginación.");
+
         const refs=[...new Set(rows.map(r=>String(r.CostEntryID??"").trim().toUpperCase()).filter(x=>x))];
         const existing=new Set();
         for(let i=0;i<refs.length;i+=100){
           const {data,error}=await supabaseClient.from("cost_entries").select("cost_entry_id").eq("project_id",id).in("cost_entry_id",refs.slice(i,i+100));
+          if(!contextoVigente(contexto))return;
           if(error)throw error;
           for(const r of data||[])existing.add(r.cost_entry_id);
         }
         if(serial!==costCsvSerial||id!==Number(el("proyecto").value)||user!==usuarioIdActual)return;
-        const categories=new Map(cr.data.map(c=>[c.cost_code,c])), holes=new Map(dr.data.map(d=>[d.hole_id,d]));
+        const holeKey=(projectId,discipline,holeId)=>JSON.stringify([String(projectId),discipline,holeId]);
+        const categories=new Map(cr.data.map(c=>[c.cost_code,c])), holes=new Map(dr.data.map(d=>[holeKey(d.project_id,d.discipline,d.hole_id),d]));
         const seen=new Set();
         const results=rows.map((r,index)=>{
           const ref=String(r.CostEntryID??"").trim().toUpperCase();
@@ -2342,7 +2452,7 @@
           const category=categories.get(code);
           if(!category||!category.is_active)errors.push("Categoría inexistente o inactiva");
           else if(category.discipline!==null&&category.discipline!==disc)errors.push("Categoría incompatible");
-          if(hole){const d=holes.get(hole);if(disc==="GENERAL"||!d||d.discipline!==disc)errors.push("Sondaje incompatible");}
+          if(hole){const d=holes.get(holeKey(id,disc,hole));if(disc==="GENERAL"||!d)errors.push("Sondaje incompatible");}
           let estado="VALID";
           if(errors.length)estado="INVALID";
           else if(seen.has(ref)||existing.has(ref)){estado="DUPLICATE";errors.push(seen.has(ref)?"Duplicado en CSV":"Ya existe en PostgreSQL");}
@@ -2358,14 +2468,16 @@
         el("costCsvResults").hidden=false;
         el("costCsvImport").disabled=!results.some(x=>x.estado==="VALID");
         costCsvSay(`Validación orientativa finalizada: ${results.length} filas. No se guardó ningún costo.`);
-      }catch(e){if(serial===costCsvSerial)costCsvSay("Error: "+e.message,false);console.error("Validación CSV costos:",e);}
+      }catch(e){if(!contextoVigente(contexto))return;if(serial===costCsvSerial)costCsvSay("Error: "+e.message,false);console.error("Validación CSV costos:",e);}
       finally{costCsvBusy=false;el("costCsvPrepare").disabled=false;}
     }
     function costCsvClearInternal(){
       costCsvSerial++;costCsvPrepared=null;
       el("costCsvImport").disabled=true;el("costCsvResults").hidden=true;el("costCsvOutcome").hidden=true;
     }
-    async function costCsvImport(){
+    function costCsvImport(...args){return ejecutarEscritura("costCsvImport",costCsvImportOperacion,args);}
+    async function costCsvImportOperacion(){
+      const contexto=capturarContexto();
       if(costCsvBusy)return;
       const p=costCsvPrepared;
       if(!p||p.serial!==costCsvSerial||p.user!==usuarioIdActual||p.id!==Number(el("proyecto").value)){
@@ -2373,6 +2485,7 @@
       }
       if(!p.results.some(r=>r.estado==="VALID"))return;
       const a=await supabaseClient.auth.getUser();
+      if(!contextoVigente(contexto)||p!==costCsvPrepared||p.serial!==costCsvSerial)return;
       if(a.error||a.data?.user?.id!==p.user){costCsvSay("Sesión no válida.",false);return;}
       const project=proyectosDisponibles.find(x=>Number(x.id)===p.id);
       if(!project){costCsvSay("Proyecto no autorizado.",false);return;}
@@ -2380,14 +2493,17 @@
       costCsvBusy=true;el("costCsvImport").disabled=true;
       costCsvSay("Enviando lote y esperando confirmación de PostgreSQL...");
       try{
+        if(!contextoVigente(contexto))return;
         const {data,error}=await supabaseClient.rpc("import_costs_csv_secure",{p_project_id:p.id,p_file_name:p.file,p_rows:p.rows});
+        if(!contextoVigente(contexto))return;
         if(error)throw error;
         if(data?.status!=="COMPLETED"||!data.batch_id)throw Error("Respuesta no confirmada. Revisa import_batches.");
+        if(p!==costCsvPrepared||p.serial!==costCsvSerial)return;
         costCsvPrepared=null;costCsvSerial++;
         el("costCsvOutcome").hidden=false;
         el("costCsvSummary").textContent=`Lote ${data.batch_id} · Total ${data.total} · Importados ${data.imported} · Inválidos ${data.invalid} · Duplicados ${data.duplicates}`;
         costCsvSay("Lote COMPLETED. Verifica los resultados y la auditoría en Supabase antes de repetir.");
-      }catch(e){costCsvSay("No se confirmó la importación: "+e.message+". Revisa import_batches antes de reintentar.",false);console.error(e);}
+      }catch(e){if(!contextoVigente(contexto))return;costCsvSay("No se confirmó la importación: "+e.message+". Revisa import_batches antes de reintentar.",false);console.error(e);}
       finally{costCsvBusy=false;}
     }
 
@@ -2395,68 +2511,100 @@
     // Fase 6.6 F.1: dashboard exclusivamente de lectura mediante RLS.
     let repSequence=0;
     let repBusy=false;
+    let repActiva=null;
+    function repCapturarSolicitud(){
+      const contexto=capturarContexto();
+      const filtros={desde:el("repFrom").value,hasta:el("repTo").value,
+        curr:el("repCurrency").value,disc:el("repDisc").value,type:el("repType").value,
+        cat:el("repCategory").value,includeTests:el("repIncludeTests").checked};
+      return {contexto,filtros,clave:JSON.stringify([contexto,filtros])};
+    }
     function repReset(){
-      repSequence++;
+      repActiva=null;
+      repSequence++;repBusy=false;el("repRefresh").disabled=false;
       el("repResults").hidden=true;
       el("repTable").replaceChildren();
       el("repMessage").textContent="Selecciona un proyecto y pulsa Actualizar consulta.";
     }
     const repMoney=(n,c)=>c+" "+n.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2});
-    async function repLoad(){
+    function repLoad(){
+      const solicitud=repCapturarSolicitud();
+      // Una misma lectura en curso satisface todos sus solicitantes.
+      if(repActiva?.clave===solicitud.clave)return repActiva.promesa;
       const turn=++repSequence;
+      const activa={clave:solicitud.clave,promesa:null};
+      repActiva=activa;
+      activa.promesa=Promise.resolve().then(()=>repEjecutar(solicitud,turn)).finally(()=>{
+        if(repActiva===activa)repActiva=null;
+      });
+      return activa.promesa;
+    }
+    async function repEjecutar(solicitud,turn){
+      const {contexto,filtros}=solicitud;
+      const vigente=()=>contextoVigente(contexto)&&turn===repSequence&&solicitud.clave===repCapturarSolicitud().clave;
+      if(!vigente()){
+        if(turn===repSequence){repBusy=false;el("repRefresh").disabled=false;el("repMessage").textContent="El contexto o los filtros cambiaron. Actualiza la consulta.";}
+        return;
+      }
       const projectId=Number(el("proyecto").value), user=usuarioIdActual;
       const p=proyectosDisponibles.find(x=>Number(x.id)===projectId);
       el("repResults").hidden=true;
-      if(!user||!p){el("repMessage").textContent="Selecciona un proyecto autorizado.";return;}
-      if(repBusy){el("repMessage").textContent="Esperando consulta previa. Inténtalo nuevamente.";return;}
-      const desde=el("repFrom").value, hasta=el("repTo").value;
-      if(desde&&hasta&&desde>hasta){el("repMessage").textContent="La fecha inicial no puede superar la final.";return;}
+      if(!user||!p){repBusy=false;el("repRefresh").disabled=false;el("repMessage").textContent="Selecciona un proyecto autorizado.";return;}
+      const {desde,hasta,curr,disc,type,cat,includeTests}=filtros;
+      if(desde&&hasta&&desde>hasta){repBusy=false;el("repRefresh").disabled=false;el("repMessage").textContent="La fecha inicial no puede superar la final.";return;}
       repBusy=true;el("repRefresh").disabled=true;
       el("repMessage").textContent="Leyendo costos autorizados desde Supabase...";
       try{
-        let registros=[];
-        for(let offset=0;offset<10000;offset+=500){
-          const q=supabaseClient.from("cost_entries")
-            .select("id,cost_entry_id,cost_date,cost_type,discipline,category_id,drillhole_id,total_amount,currency")
-            .eq("project_id",projectId).order("id").range(offset,offset+499);
-          const {data,error}=await q;
-          if(error)throw error;
-          if(turn!==repSequence||user!==usuarioIdActual||projectId!==Number(el("proyecto").value))return;
-          registros.push(...(data||[]));
-          if(!data||data.length<500)break;
-          if(offset===9500)throw new Error("Hay más de 10 000 registros. Se necesita paginación de reportes antes de mostrar totales.");
-        }
-        const idsCategorias=[...new Set(registros.map(r=>r.category_id).filter(Boolean))];
+        const totals={PRESUPUESTO:0,COMPROMETIDO:0,REAL:0},grupos=new Map(),registros=[];
+        let cantidad=0;
+        await leerPaginas(()=>{
+          let q=supabaseClient.from("cost_entries")
+            .select("id,cost_entry_id,cost_date,cost_type,discipline,category_id,drillhole_id,total_amount,currency",{count:"exact"})
+            .eq("project_id",projectId).eq("currency",curr);
+          if(disc)q=q.eq("discipline",disc);
+          if(type)q=q.eq("cost_type",type);
+          if(cat)q=q.eq("category_id",cat);
+          if(desde)q=q.gte("cost_date",desde);
+          if(hasta)q=q.lte("cost_date",hasta);
+          if(!includeTests)q=q.not("cost_entry_id","ilike","TEST-%");
+          return q.order("cost_date",{ascending:false}).order("id",{ascending:false});
+        },vigente,pagina=>{
+          for(const r of pagina){
+            cantidad++;
+            totals[r.cost_type]=(totals[r.cost_type]||0)+Number(r.total_amount);
+            const key=JSON.stringify([r.cost_type,r.discipline]);
+            const grupo=grupos.get(key)||{cost_type:r.cost_type,discipline:r.discipline,total_amount:0};
+            grupo.total_amount+=Number(r.total_amount);grupos.set(key,grupo);
+            if(registros.length<100)registros.push(r);
+          }
+        });
+        if(!vigente())return;
         const idsSondajes=[...new Set(registros.map(r=>r.drillhole_id).filter(Boolean))];
         const catMap=new Map(),holeMap=new Map();
-        for(let i=0;i<idsCategorias.length;i+=100){
-          const {data,error}=await supabaseClient.from("cost_categories").select("id,cost_code,category_name").eq("project_id",projectId).in("id",idsCategorias.slice(i,i+100));
-          if(error)throw error;
-          for(const c of data||[])catMap.set(String(c.id),c);
-        }
+        const catalogo=await leerPaginas(()=>supabaseClient.from("cost_categories")
+          .select("id,cost_code,category_name",{count:"exact"}).eq("project_id",projectId).order("cost_code").order("id"),vigente);
+        for(const c of catalogo.data)catMap.set(String(c.id),c);
         for(let i=0;i<idsSondajes.length;i+=100){
           const {data,error}=await supabaseClient.from("drillholes").select("id,hole_id").eq("project_id",projectId).in("id",idsSondajes.slice(i,i+100));
+          if(!vigente())return;
           if(error)throw error;
           for(const d of data||[])holeMap.set(String(d.id),d.hole_id);
         }
-        if(turn!==repSequence||user!==usuarioIdActual||projectId!==Number(el("proyecto").value))return;
+        if(!vigente())return;
         const catSelect=el("repCategory"), selectedCat=catSelect.value;
         catSelect.replaceChildren(new Option("Todas",""));
         for(const c of [...catMap.values()].sort((a,b)=>a.cost_code.localeCompare(b.cost_code))){
           catSelect.add(new Option(c.cost_code+" · "+c.category_name,String(c.id)));
         }
         if([...catSelect.options].some(o=>o.value===selectedCat))catSelect.value=selectedCat;
-        const curr=el("repCurrency").value,disc=el("repDisc").value,type=el("repType").value,cat=catSelect.value,includeTests=el("repIncludeTests").checked;
-        const rows=registros.filter(r=>(includeTests||!String(r.cost_entry_id).toUpperCase().startsWith("TEST-"))&&r.currency===curr&&(!disc||r.discipline===disc)&&(!type||r.cost_type===type)&&(!cat||String(r.category_id)===cat)&&(!desde||r.cost_date>=desde)&&(!hasta||r.cost_date<=hasta));
-        const totals={PRESUPUESTO:0,COMPROMETIDO:0,REAL:0};
-        for(const r of rows)totals[r.cost_type]=(totals[r.cost_type]||0)+Number(r.total_amount);
+        const rows=registros;
         el("repBudget").textContent=repMoney(totals.PRESUPUESTO,curr);
         el("repCommitted").textContent=repMoney(totals.COMPROMETIDO,curr);
         el("repActual").textContent=repMoney(totals.REAL,curr);
-        el("repCount").textContent=p.project_name+" · "+rows.length+" registros"+(includeTests?" · Incluye pruebas TEST-":" · Excluye pruebas TEST-");
-        repRenderCharts(rows,curr);
+        el("repCount").textContent=p.project_name+" · "+cantidad+" registros"+(includeTests?" · Incluye pruebas TEST-":" · Excluye pruebas TEST-");
+        repRenderCharts([...grupos.values()],curr,cantidad);
         const body=el("repTable");body.replaceChildren();
-        for(const r of [...rows].sort((a,b)=>b.cost_date.localeCompare(a.cost_date)||b.id-a.id).slice(0,100)){
+        for(const r of rows){
           const tr=document.createElement("tr");
           for(const x of [r.cost_entry_id,r.cost_date,r.discipline,catMap.get(String(r.category_id))?.cost_code||"—",holeMap.get(String(r.drillhole_id))||"—",r.cost_type,repMoney(Number(r.total_amount),r.currency),r.currency]){
             const td=document.createElement("td");td.textContent=String(x);tr.appendChild(td);
@@ -2465,8 +2613,11 @@
         }
         el("repResults").hidden=false;
         el("repMessage").textContent="Consulta terminada. No se modificó ningún registro.";
-      }catch(e){if(turn===repSequence){el("repMessage").textContent="No se pudo cargar el reporte: "+e.message;console.error("Reporte costos:",e);}}
-      finally{repBusy=false;el("repRefresh").disabled=false;}
+      }catch(e){if(!vigente())return;el("repMessage").textContent="No se pudo cargar el reporte: "+e.message;console.error("Reporte costos:",e);}
+      finally{if(turn===repSequence){
+        repBusy=false;el("repRefresh").disabled=false;
+        if(!vigente())el("repMessage").textContent="El contexto o los filtros cambiaron. Actualiza la consulta.";
+      }}
     }
 
 
@@ -2493,7 +2644,7 @@
         row.append(label,track,amount);target.appendChild(row);
       }
     }
-    function repRenderCharts(rows,currency){
+    function repRenderCharts(rows,currency,cantidad=rows.length){
       const types=repTypes.map(t=>({label:t,type:t,value:rows.filter(r=>r.cost_type===t).reduce((sum,r)=>sum+Number(r.total_amount),0)}));
       repBars("repChartTypes",types,currency);
       const discs=[];
@@ -2505,31 +2656,142 @@
         }
       }
       repBars("repChartDisc",discs,currency);
-      el("repChartFootnote").textContent="Gráficos referenciales calculados desde "+rows.length+" movimiento(s) visibles bajo RLS. No se mezclan USD y PEN. Los registros TEST- " + (el("repIncludeTests").checked?"están incluidos solo para pruebas.":"están excluidos.");
+      el("repChartFootnote").textContent="Gráficos referenciales calculados desde "+cantidad+" movimiento(s) visibles bajo RLS. No se mezclan USD y PEN. Los registros TEST- " + (el("repIncludeTests").checked?"están incluidos solo para pruebas.":"están excluidos.");
     }
+
+// Consulta de historial por RPC con validación de contexto de sesión/proyecto.
+let histGeneration=0,histListTurn=0,histSummaryTurn=0,histRowsTurn=0;
+let histListController=null,histSummaryController=null,histRowsController=null;
+let histCursors=[null],histIndex=0,histNextCursor=null;
+let histRowCursors=[null],histRowIndex=0,histRowNext=null,histBatch=null;
+const histLabels={PENDING:'Pendiente',PROCESSING:'Procesando',COMPLETED:'Completado',FAILED:'Fallido',IMPORTED:'Importada',INVALID:'Inválida',DUPLICATE:'Duplicada',UNRESOLVED:'No resuelta',NOT_VERIFIABLE:'No verificable',REVIEW_REQUIRED:'Requiere revisión',MATCHES_RECORDED_ROWS:'Coincide con filas registradas'};
+function histText(value){return value==null?'—':String(value);}
+function histMessage(id,text,error=false){el(id).textContent=text;el(id).classList.toggle('history-error',error);}
+function histEmpty(id,text,columns){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=columns;cell.className='history-empty';cell.textContent=text;row.append(cell);el(id).replaceChildren(row);}
+function histClearDetail(){
+ histSummaryTurn++;histRowsTurn++;histSummaryController?.abort();histRowsController?.abort();
+ histBatch=null;histRowCursors=[null];histRowIndex=0;histRowNext=null;
+ el('histSummary').hidden=true;el('histRows').hidden=true;el('histCounters').replaceChildren();el('histIssues').replaceChildren();el('histRowsList').replaceChildren();el('histSummaryMessage').textContent='';el('histRowsMessage').textContent='';
+}
+function histReset(){
+ histGeneration++;histListTurn++;histListController?.abort();histClearDetail();
+ histCursors=[null];histIndex=0;histNextCursor=null;
+ el('histList').replaceChildren();el('histProject').replaceChildren();el('histPrev').disabled=true;el('histNext').disabled=true;el('histRefresh').disabled=false;el('histPage').textContent='Página 1';
+ for(const name of ['histDataset','histDiscipline','histStatus','histOutcome'])el(name).value='';
+ histMessage('histMessage','Selecciona un proyecto para consultar.');
+}
+function histProjects(){
+ const selected=el('proyecto').value,selector=el('histProject');selector.replaceChildren();
+ for(const p of proyectosDisponibles){const option=new Option(p.project_name,String(p.id));selector.append(option);}
+ selector.value=selected;
+}
+function histContext(){return {generation:histGeneration,session:capturarContexto(),project:HistoryCore.id(el('proyecto').value)};}
+function histCurrent(c){return c.generation===histGeneration&&contextoVigente(c.session)&&c.project===el('proyecto').value;}
+async function histRPC(name,args,signal){
+ const {data,error}=await supabaseClient.auth.getSession();
+ if(error||!data?.session)throw new Error('La sesión terminó. Vuelve a iniciar sesión.');
+ if(signal.aborted)throw new DOMException('Solicitud cancelada','AbortError');
+ const response=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{method:'POST',signal,headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:'Bearer '+data.session.access_token,'Content-Type':'application/json'},body:JSON.stringify(args)});
+ const value=HistoryCore.parseExactJSON(await response.text());
+ if(!response.ok){const error=new Error(value.code==='42501'?'No tienes permiso para esta consulta.':value.code==='22023'?'Los filtros o el cursor no son válidos. Actualiza el historial.':value.code==='PGRST202'||value.code==='42883'?'El historial todavía no está habilitado en este entorno. Los demás módulos siguen disponibles.':'No se pudo consultar el historial. Inténtalo nuevamente.');error.code=value.code;throw error;}
+ return value;
+}
+async function histLoad(reset=true){
+ if(!usuarioIdActual)return;
+ let context;try{context=histContext();}catch(e){histMessage('histMessage',e.message,true);return;}
+ histListController?.abort();histListController=new AbortController();const turn=++histListTurn,signal=histListController.signal;
+ if(reset){histCursors=[null];histIndex=0;}histNextCursor=null;histClearDetail();
+ el('histRefresh').disabled=true;el('histPrev').disabled=true;el('histNext').disabled=true;
+ histEmpty('histList','Consultando lotes…',6);histMessage('histMessage','Consultando…');
+ const cursor=histCursors[histIndex];
+ try{
+  const page=HistoryCore.page(await histRPC('list_import_batches_secure',{p_project_id:context.project,p_dataset_type:el('histDataset').value||null,p_discipline:el('histDiscipline').value||null,p_status:el('histStatus').value||null,p_limit:20,p_before_created_at:cursor?.before_created_at??null,p_before_id:cursor?.before_id==null?null:HistoryCore.id(cursor.before_id)},signal));
+  if(!histCurrent(context)||turn!==histListTurn)return;
+  el('histList').replaceChildren();
+  if(!page.items.length)histEmpty('histList','No hay importaciones con estos filtros.',6);
+  for(const batch of page.items){
+   const batchId=HistoryCore.id(batch.batch_id);if(HistoryCore.id(batch.project_id)!==context.project)throw new Error('Respuesta fuera del proyecto seleccionado.');
+   const row=document.createElement('tr');
+   for(const text of ['#'+batchId+' · '+histText(batch.file_name),histText(batch.dataset_type)+' / '+histText(batch.discipline),new Date(batch.created_at).toLocaleString('es-PE'),histLabels[batch.status]??batch.status,histLabels[batch.consistency]??batch.consistency]){const cell=document.createElement('td');cell.textContent=text;row.append(cell);}
+   const cell=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='cat-secondary';button.textContent='Ver resumen';button.addEventListener('click',()=>histSummary(batchId));cell.append(button);row.append(cell);el('histList').append(row);
+  }
+  histNextCursor=page.has_more?page.next_cursor:null;
+  el('histPage').textContent='Página '+(histIndex+1);histMessage('histMessage',page.items.length+' lote(s) en esta página.');
+ }catch(e){if(!histCurrent(context)||turn!==histListTurn||e.name==='AbortError')return;histEmpty('histList','No se pudieron cargar los lotes.',6);histMessage('histMessage',e.message,true);}
+ finally{if(histCurrent(context)&&turn===histListTurn){el('histRefresh').disabled=false;el('histPrev').disabled=histIndex===0;el('histNext').disabled=!histNextCursor;}}
+}
+async function histSummary(batchId){
+ const context=histContext();histClearDetail();histBatch=batchId;el('histSummary').hidden=false;
+ const turn=++histSummaryTurn;histSummaryController=new AbortController();
+ el('histRowsOpen').disabled=true;el('histSummaryTitle').textContent='Lote #'+batchId;histMessage('histSummaryMessage','Consultando resumen…');
+ try{
+  const result=await histRPC('get_import_batch_secure',{p_project_id:context.project,p_batch_id:batchId},histSummaryController.signal);
+  if(!histCurrent(context)||turn!==histSummaryTurn||histBatch!==batchId)return;
+  if(HistoryCore.id(result.project_id)!==context.project||HistoryCore.id(result.batch_id)!==batchId)throw new Error('Resumen fuera del contexto solicitado.');
+  el('histSummaryTitle').textContent='Lote #'+batchId+' · '+histText(result.file_name);
+  for(const [key,label]of [['total','Filas registradas'],['imported','Importadas'],['invalid','Inválidas'],['duplicates','Duplicadas'],['unresolved','No resueltas']]){
+   const card=document.createElement('div');card.className='history-counter';const caption=document.createElement('span'),value=document.createElement('strong');caption.textContent=label;value.textContent=histText(result.recorded?.[key]);card.append(caption,value);el('histCounters').append(card);
+  }
+  const issues=Array.isArray(result.issues)?result.issues:[];
+  for(const issue of issues){const li=document.createElement('li');li.textContent=histIssueLabel(issue);el('histIssues').append(li);}
+  histMessage('histSummaryMessage',histLabels[result.consistency]??'Consistencia no disponible');el('histRowsOpen').disabled=false;
+ }catch(e){if(histCurrent(context)&&turn===histSummaryTurn&&e.name!=='AbortError')histMessage('histSummaryMessage',e.message,true);}
+}
+function histIssueLabel(issue){
+ const labels={SQL_TOTAL_MISMATCH:'El total del lote difiere de las filas registradas.',SQL_INSERTED_MISMATCH:'El contador de importadas difiere de las filas registradas.',SQL_REJECTED_MISMATCH:'El contador de rechazadas difiere del detalle.',UPDATED_ROWS_NOT_RECONCILABLE:'Hay actualizaciones que no pueden reconciliarse con este historial.',SQL_COUNTER_EQUATION_MISMATCH:'Los contadores del lote no cuadran entre sí.',NO_ROW_EVIDENCE:'No hay detalle de filas para verificar este lote.',UNRESOLVED_ROWS:'Hay filas cuyo resultado no puede determinarse.',BATCH_NOT_COMPLETED:'El lote no está completado.',DUPLICATES_INFERRED_FROM_LEGACY_ERRORS:'Los duplicados se infieren de mensajes históricos.'};
+ if(labels[issue])return labels[issue];
+ if(String(issue).startsWith('EXTRA_MISSING_OR_INVALID:'))return 'Falta un contador adicional válido: '+String(issue).split(':')[1];
+ if(String(issue).startsWith('EXTRA_MISMATCH:'))return 'Un contador adicional difiere del detalle: '+String(issue).split(':')[1];
+ return 'Observación del lote: '+histText(issue);
+}
+async function histRowsLoad(reset=true){
+ if(!histBatch)return;const context=histContext(),batch=histBatch;
+ histRowsController?.abort();histRowsController=new AbortController();const turn=++histRowsTurn;
+ if(reset){histRowCursors=[null];histRowIndex=0;}histRowNext=null;
+ el('histRows').hidden=false;el('histRowsPrev').disabled=true;el('histRowsNext').disabled=true;
+ histEmpty('histRowsList','Consultando filas…',5);histMessage('histRowsMessage','Consultando…');
+ const cursor=histRowCursors[histRowIndex];
+ try{
+  const page=HistoryCore.page(await histRPC('list_import_batch_rows_secure',{p_project_id:context.project,p_batch_id:batch,p_outcome:el('histOutcome').value||null,p_limit:20,p_after_row_number:cursor?.after_row_number??null,p_after_id:cursor?.after_id==null?null:HistoryCore.id(cursor.after_id)},histRowsController.signal));
+  if(!histCurrent(context)||turn!==histRowsTurn||histBatch!==batch)return;
+  el('histRowsList').replaceChildren();if(!page.items.length)histEmpty('histRowsList','No hay filas con este resultado.',5);
+  for(const item of page.items){const row=document.createElement('tr');for(const value of [item.row_number,histLabels[item.outcome]??item.outcome,item.validation_status,item.validation_errors,item.raw_data]){const cell=document.createElement('td');if(typeof value==='object'){const pre=document.createElement('pre');pre.className='history-json';pre.textContent=JSON.stringify(value,null,2);cell.append(pre);}else cell.textContent=histText(value);row.append(cell);}el('histRowsList').append(row);}
+  histRowNext=page.has_more?page.next_cursor:null;histMessage('histRowsMessage',page.items.length+' fila(s) en esta página.');el('histRowsPage').textContent='Página '+(histRowIndex+1);
+ }catch(e){if(histCurrent(context)&&turn===histRowsTurn&&e.name!=='AbortError'){histEmpty('histRowsList',e.code==='42501'?'El detalle está restringido a ADMIN y EDITOR.':'No se pudieron cargar las filas.',5);histMessage('histRowsMessage',e.message,true);}}
+ finally{if(histCurrent(context)&&turn===histRowsTurn&&histBatch===batch){el('histRowsPrev').disabled=histRowIndex===0;el('histRowsNext').disabled=!histRowNext;}}
+}
+function histInit(){
+ el('navHistorial').addEventListener('click',()=>abrirModulo('historial'));
+ el('histRefresh').addEventListener('click',()=>histLoad(true));
+ for(const name of ['histDataset','histDiscipline','histStatus'])el(name).addEventListener('change',()=>histLoad(true));
+ el('histProject').addEventListener('change',()=>{el('proyecto').value=el('histProject').value;el('proyecto').dispatchEvent(new Event('change'));});
+ el('histNext').addEventListener('click',()=>{if(histNextCursor){histCursors=histCursors.slice(0,histIndex+1);histCursors.push(histNextCursor);histIndex++;histLoad(false);}});
+ el('histPrev').addEventListener('click',()=>{if(histIndex){histIndex--;histLoad(false);}});
+ el('histRowsOpen').addEventListener('click',()=>{el('histOutcome').value='';histRowsLoad(true);});
+ el('histOutcome').addEventListener('change',()=>histRowsLoad(true));
+ el('histRowsNext').addEventListener('click',()=>{if(histRowNext){histRowCursors=histRowCursors.slice(0,histRowIndex+1);histRowCursors.push(histRowNext);histRowIndex++;histRowsLoad(false);}});
+ el('histRowsPrev').addEventListener('click',()=>{if(histRowIndex){histRowIndex--;histRowsLoad(false);}});
+}
 
     function abrirModulo(modulo){
-      const costos = modulo === "costos";
-      el("vistaSondajes").hidden = costos;
-      el("vistaCostos").hidden = !costos;
-      el("navSondajes").classList.toggle("active", !costos);
-      el("navCostos").classList.toggle("active", costos);
-      el("navSondajes").setAttribute("aria-current", costos ? "false" : "page");
-      if(costos){catCargar();costCargar();repLoad();}
-      el("navCostos").setAttribute("aria-current", costos ? "page" : "false");
+      for(const [name,nav] of [['sondajes','Sondajes'],['costos','Costos'],['historial','Historial']]){
+        el('vista'+nav).hidden=modulo!==name;el('nav'+nav).classList.toggle('active',modulo===name);el('nav'+nav).setAttribute('aria-current',modulo===name?'page':'false');
+      }
+      if(modulo==='costos'){catCargar();costCargar();repLoad();}
+      if(modulo==='historial'){histProjects();histLoad(true);}
     }
-
     function init(){
 
       if(!window.supabase){mensaje("loginMessage","No se pudo cargar la librería Supabase. Revisa tu conexión a internet.","#b91c1c");return;}
 
       supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+      histInit();
 
       console.log("Cliente Supabase inicializado");
 
       el("loginForm").addEventListener("submit",async e=>{
 
-        e.preventDefault();el("loginButton").disabled=true;
+        e.preventDefault();const authSolicitud=authVersion;el("loginButton").disabled=true;
 
         mensaje("loginMessage","Verificando credenciales...");
 
@@ -2537,11 +2799,12 @@
 
           const {data,error}=await supabaseClient.auth.signInWithPassword({email:el("loginEmail").value,password:el("loginPassword").value});
 
+          if(authSolicitud!==authVersion)return;
           if(error)throw error;
 
           el("loginPassword").value="";mensaje("loginMessage","");mostrarSesion(data.user);
 
-        }catch(error){mensaje("loginMessage","No se pudo iniciar sesión: "+error.message,"#b91c1c");}
+        }catch(error){if(authSolicitud!==authVersion)return;mensaje("loginMessage","No se pudo iniciar sesión: "+error.message,"#b91c1c");}
 
         finally{el("loginButton").disabled=false;}
 
@@ -2549,7 +2812,9 @@
 
       el("logoutButton").addEventListener("click",async()=>{
 
+        const authSalida=authVersion;
         const {error}=await supabaseClient.auth.signOut();
+        if(authSalida!==authVersion)return;
 
         if(error){alert("No se pudo cerrar sesión: "+error.message);return;}
 
@@ -2574,7 +2839,20 @@
       el("catRefresh").addEventListener("click",catCargar);
       el("navSondajes").addEventListener("click", () => abrirModulo("sondajes"));
       el("navCostos").addEventListener("click", () => abrirModulo("costos"));
-      el("proyecto").addEventListener("change",async()=>{costCsvClear();repReset();await mostrarDatos();if(!el("vistaCostos").hidden){await catCargar();await costCargar();await repLoad();}});
+      el("proyecto").addEventListener("change",async()=>{
+        actualizarContextoProyecto();
+        const contexto=capturarContexto();
+        if(!el("vistaHistorial").hidden){histProjects();histLoad(true);}
+        await mostrarDatos();
+        if(!contextoVigente(contexto))return;
+        if(!el("vistaCostos").hidden){
+          await catCargar();
+          if(!contextoVigente(contexto))return;
+          await costCargar();
+          if(!contextoVigente(contexto))return;
+          await repLoad();
+        }
+      });
 
       el("btnPrepararCSV").addEventListener("click",prepararCSV);
 
@@ -2596,14 +2874,25 @@
 
         // La función no consulta Supabase sincrónicamente dentro del callback.
 
+        authVersion++;
+        const identidad=identidadSesion(sesion);
+        const mismoUsuario=usuarioIdActual===(sesion?.user?.id??null);
+        if(identidad!==sesionContexto){
+          sesionContexto=identidad;contextoVersion++;
+          limpiarCSV();costCsvClearInternal();
+        }
         mostrarSesion(sesion?.user??null);
+        // getUser puede haberse adelantado al primer evento de Auth.
+        if(mismoUsuario&&sesion&&!proyectosDisponibles.length)cargarProyectos();
 
       });
 
+      const authInicial=authVersion;
       supabaseClient.auth.getUser().then(({data,error})=>{
 
         if(error)console.log("Sin sesión activa o no se pudo verificar.");
 
+        if(authInicial!==authVersion)return;
         mostrarSesion(data?.user??null);
 
       }).catch(error=>console.error("Error de sesión:",error));
