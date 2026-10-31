@@ -222,8 +222,9 @@
     @media(max-width:750px){.cost-report-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.cost-report-kpis{grid-template-columns:1fr}}
   </style>
 
-<link rel="stylesheet" href="./history.css"><script src="./history-core.js"></script>
-</head>
+<link rel="stylesheet" href="./history.css">
+<script src="./history-core.js"></script>
+<script src="./realtime-costs.js"></script></head>
 
 <body>
 
@@ -259,14 +260,18 @@
 
       <h2>Sesión activa</h2>
 
-      <p id="sessionEmail"></p>
+      <p id="sessionEmail"></p><p id="rtStatus" class="subtle" role="status" aria-live="polite">Actualización automática: sin proyecto</p>
 
       <button id="logoutButton" type="button">Cerrar sesión</button>
 
     </section>
 
       <div id="privateContent" hidden>
-        <nav class="module-nav" aria-label="Módulos de OREPLANIX-Hole">
+        <section class="panel" aria-label="Proyecto de trabajo">        <label for="proyecto">Seleccionar proyecto</label>
+
+        <select id="proyecto" aria-label="Proyecto autorizado"></select>
+
+        <p class="subtle">Solo se muestran los proyectos autorizados por las políticas RLS.</p></section><nav class="module-nav" aria-label="Módulos de OREPLANIX-Hole">
           <button type="button" id="navSondajes" class="module-tab active" aria-current="page">Sondajes y avances</button>
           <button type="button" id="navCostos" class="module-tab">Costos</button><button type="button" id="navHistorial" class="module-tab">Historial de importaciones</button>
         </nav>
@@ -276,11 +281,7 @@
 
         <h2>Panel de control</h2>
 
-        <label for="proyecto">Seleccionar proyecto</label>
 
-        <select id="proyecto" aria-label="Proyecto autorizado"></select>
-
-        <p class="subtle">Solo se muestran los proyectos autorizados por las políticas RLS.</p>
 
       </section>
 
@@ -636,6 +637,24 @@
   <script>
 
     "use strict";
+(function(root){
+ 'use strict';
+ function read(value){
+  if(typeof value==='bigint')return value;
+  if(typeof value==='number'&&(!Number.isFinite(value)||Math.abs(value)>Number.MAX_SAFE_INTEGER/10000))throw new Error('Importe numérico sin precisión suficiente.');
+  const m=/^(-?)(\d+)(?:\.(\d{1,4}))?$/.exec(String(value));
+  if(!m)throw new Error('Importe inválido o con más de cuatro decimales.');
+  const amount=BigInt(m[2])*10000n+BigInt((m[3]??'').padEnd(4,'0'));
+  return m[1]?-amount:amount;
+ }
+ function format(value,currency){
+  const n=read(value),negative=n<0n,a=negative?-n:n,cents=(a+50n)/100n;
+  return currency+' '+(negative&&cents?'-':'')+(cents/100n).toLocaleString('es-PE')+'.'+String(cents%100n).padStart(2,'0');
+ }
+ function percent(value,max){return max>0n?Number(value*10000n/max)/100:0;}
+ const api={read,format,percent};if(typeof module!=='undefined')module.exports=api;else root.Money4=api;
+})(globalThis);
+
 
     const SUPABASE_URL = "https://pflplvqyigrxknkvfmwr.supabase.co";
 
@@ -732,7 +751,7 @@
     function actualizarContextoProyecto(){
       const project=el("proyecto").value;
       if(project===proyectoContexto)return;
-      proyectoContexto=project;contextoVersion++;historialVersion++;histReset();
+      proyectoContexto=project;contextoVersion++;historialVersion++;histReset();rtContextChanged();
       catResetSesion();repReset();costCsvClear();limpiarCSV();
       costLoadVersion++;costHoles=[];costCategories=[];costLimpiar();
       for(const id of ["btnValidarCSV","btnValidarCollar","btnValidarSurvey","costCsvPrepare"])el(id).disabled=false;
@@ -984,7 +1003,6 @@
 
         el("avanceTotal").textContent=total.toFixed(2);
 
-        console.log("Datos reales cargados desde Supabase:",proyecto.project_name,lista.length,total);
 
       }catch(error){if(!contextoVigente(contexto))return;
 
@@ -1016,7 +1034,7 @@
 
       if(usuarioIdActual!==nuevoId){
         contextoVersion++;historialVersion++;
-        usuarioIdActual=nuevoId;
+        usuarioIdActual=nuevoId;rtContextChanged();
         limpiarDatosSesion();
 
         limpiarPanel();proyectoContexto="";
@@ -1349,7 +1367,6 @@
 
         mensaje("csvValidationMessage","Validación completada. No se guardaron datos.","#166534");
 
-        console.log("Resultados validación:",resultados);
 
       }catch(error){if(!contextoVigente(contexto))return;
 
@@ -1613,7 +1630,6 @@
 
         }
 
-        console.log("Importación confirmada por PostgreSQL:",data);
 
       }catch(error){if(!contextoVigente(contexto))return;
 
@@ -2319,7 +2335,7 @@
         costCategories=catResult.data??[];
         costHoles=holeResult.data??[];
         costOptions();
-        costMsg(`Catálogo actualizado: ${categoriaLista.filter(x=>x.is_active).length} categorías activas y ${costHoles.length} sondajes.`);
+        costMsg(`Catálogo actualizado: ${costCategories.filter(x=>x.is_active).length} categorías activas y ${costHoles.length} sondajes.`);
       }catch(e){if(!contextoVigente(contexto))return;if(version===costLoadVersion)costMsg("No se pudo actualizar: "+e.message,false);}
     }
     function costLimpiar(){
@@ -2526,7 +2542,7 @@
       el("repTable").replaceChildren();
       el("repMessage").textContent="Selecciona un proyecto y pulsa Actualizar consulta.";
     }
-    const repMoney=(n,c)=>c+" "+n.toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2});
+    const repMoney=(n,c)=>Money4.format(n,c);
     function repLoad(){
       const solicitud=repCapturarSolicitud();
       // Una misma lectura en curso satisface todos sus solicitantes.
@@ -2555,11 +2571,11 @@
       repBusy=true;el("repRefresh").disabled=true;
       el("repMessage").textContent="Leyendo costos autorizados desde Supabase...";
       try{
-        const totals={PRESUPUESTO:0,COMPROMETIDO:0,REAL:0},grupos=new Map(),registros=[];
+        const totals={PRESUPUESTO:0n,COMPROMETIDO:0n,REAL:0n},grupos=new Map(),registros=[];
         let cantidad=0;
         await leerPaginas(()=>{
           let q=supabaseClient.from("cost_entries")
-            .select("id,cost_entry_id,cost_date,cost_type,discipline,category_id,drillhole_id,total_amount,currency",{count:"exact"})
+            .select("id,cost_entry_id,cost_date,cost_type,discipline,category_id,drillhole_id,total_amount::text,currency",{count:"exact"})
             .eq("project_id",projectId).eq("currency",curr);
           if(disc)q=q.eq("discipline",disc);
           if(type)q=q.eq("cost_type",type);
@@ -2571,10 +2587,10 @@
         },vigente,pagina=>{
           for(const r of pagina){
             cantidad++;
-            totals[r.cost_type]=(totals[r.cost_type]||0)+Number(r.total_amount);
+            totals[r.cost_type]=(totals[r.cost_type]??0n)+Money4.read(r.total_amount);
             const key=JSON.stringify([r.cost_type,r.discipline]);
-            const grupo=grupos.get(key)||{cost_type:r.cost_type,discipline:r.discipline,total_amount:0};
-            grupo.total_amount+=Number(r.total_amount);grupos.set(key,grupo);
+            const grupo=grupos.get(key)||{cost_type:r.cost_type,discipline:r.discipline,total_amount:0n};
+            grupo.total_amount+=Money4.read(r.total_amount);grupos.set(key,grupo);
             if(registros.length<100)registros.push(r);
           }
         });
@@ -2606,7 +2622,7 @@
         const body=el("repTable");body.replaceChildren();
         for(const r of rows){
           const tr=document.createElement("tr");
-          for(const x of [r.cost_entry_id,r.cost_date,r.discipline,catMap.get(String(r.category_id))?.cost_code||"—",holeMap.get(String(r.drillhole_id))||"—",r.cost_type,repMoney(Number(r.total_amount),r.currency),r.currency]){
+          for(const x of [r.cost_entry_id,r.cost_date,r.discipline,catMap.get(String(r.category_id))?.cost_code||"—",holeMap.get(String(r.drillhole_id))||"—",r.cost_type,repMoney(Money4.read(r.total_amount),r.currency),r.currency]){
             const td=document.createElement("td");td.textContent=String(x);tr.appendChild(td);
           }
           body.appendChild(tr);
@@ -2627,8 +2643,8 @@
     const repDiscs=["GEOLOGIA","GEOMECANICA","HIDROGEOLOGIA","GENERAL"];
     function repBars(containerId,items,currency){
       const target=el(containerId);target.replaceChildren();
-      const max=Math.max(0,...items.map(x=>x.value));
-      if(!items.length||max===0){
+      const max=items.reduce((m,x)=>x.value>m?x.value:m,0n);
+      if(!items.length||max===0n){
         const p=document.createElement("p");p.className="rep-muted";
         p.textContent="Sin importes para los filtros seleccionados.";target.appendChild(p);return;
       }
@@ -2638,28 +2654,28 @@
         const track=document.createElement("div");track.className="rep-track";
         track.setAttribute("role","img");track.setAttribute("aria-label",item.label+": "+repMoney(item.value,currency));
         const fill=document.createElement("div");fill.className="rep-fill "+(item.type==="PRESUPUESTO"?"budget":item.type==="COMPROMETIDO"?"committed":"");
-        fill.style.width=(item.value>0?(item.value/max*100):0).toFixed(2)+"%";
+        fill.style.width=Money4.percent(item.value,max).toFixed(2)+"%";
         track.appendChild(fill);
         const amount=document.createElement("span");amount.className="rep-amount";amount.textContent=repMoney(item.value,currency);
         row.append(label,track,amount);target.appendChild(row);
       }
     }
     function repRenderCharts(rows,currency,cantidad=rows.length){
-      const types=repTypes.map(t=>({label:t,type:t,value:rows.filter(r=>r.cost_type===t).reduce((sum,r)=>sum+Number(r.total_amount),0)}));
+      const types=repTypes.map(t=>({label:t,type:t,value:rows.filter(r=>r.cost_type===t).reduce((sum,r)=>sum+Money4.read(r.total_amount),0n)}));
       repBars("repChartTypes",types,currency);
       const discs=[];
       for(const t of repTypes){
         for(const d of repDiscs){
           const subset=rows.filter(r=>r.cost_type===t&&r.discipline===d);
           if(!subset.length)continue;
-          discs.push({label:d+" · "+t,type:t,value:subset.reduce((sum,r)=>sum+Number(r.total_amount),0)});
+          discs.push({label:d+" · "+t,type:t,value:subset.reduce((sum,r)=>sum+Money4.read(r.total_amount),0n)});
         }
       }
       repBars("repChartDisc",discs,currency);
       el("repChartFootnote").textContent="Gráficos referenciales calculados desde "+cantidad+" movimiento(s) visibles bajo RLS. No se mezclan USD y PEN. Los registros TEST- " + (el("repIncludeTests").checked?"están incluidos solo para pruebas.":"están excluidos.");
     }
 
-// Consulta de historial por RPC con validación de contexto de sesión/proyecto.
+// Integrado únicamente en la copia local. Ninguna escritura de datos de negocio.
 let histGeneration=0,histListTurn=0,histSummaryTurn=0,histRowsTurn=0;
 let histListController=null,histSummaryController=null,histRowsController=null;
 let histCursors=[null],histIndex=0,histNextCursor=null;
@@ -2693,7 +2709,7 @@ async function histRPC(name,args,signal){
  if(signal.aborted)throw new DOMException('Solicitud cancelada','AbortError');
  const response=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{method:'POST',signal,headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:'Bearer '+data.session.access_token,'Content-Type':'application/json'},body:JSON.stringify(args)});
  const value=HistoryCore.parseExactJSON(await response.text());
- if(!response.ok){const error=new Error(value.code==='42501'?'No tienes permiso para esta consulta.':value.code==='22023'?'Los filtros o el cursor no son válidos. Actualiza el historial.':value.code==='PGRST202'||value.code==='42883'?'El historial todavía no está habilitado en este entorno. Los demás módulos siguen disponibles.':'No se pudo consultar el historial. Inténtalo nuevamente.');error.code=value.code;throw error;}
+ if(!response.ok){const error=new Error(value.code==='42501'?'No tienes permiso para esta consulta.':value.code==='22023'?'Los filtros o el cursor no son válidos. Actualiza el historial.':'No se pudo consultar el historial. Inténtalo nuevamente.');error.code=value.code;throw error;}
  return value;
 }
 async function histLoad(reset=true){
@@ -2773,6 +2789,34 @@ function histInit(){
  el('histRowsPrev').addEventListener('click',()=>{if(histRowIndex){histRowIndex--;histRowsLoad(false);}});
 }
 
+let rtController=null,rtSyncTimer=null,rtRevision=0;
+function rtContextChanged(){
+ const revision=++rtRevision;clearTimeout(rtSyncTimer);
+ if(!rtController)return;
+ // Invalidar el canal anterior de inmediato; getSession se hace fuera de callbacks Auth.
+ if(!usuarioIdActual||!el('proyecto').value){rtController.stop();return;}
+ rtSyncTimer=setTimeout(async()=>{
+  const ctx=capturarContexto();const {data,error}=await supabaseClient.auth.getSession();
+  if(revision!==rtRevision||!contextoVigente(ctx))return;
+  if(error||!data.session||data.session.user.id!==usuarioIdActual){rtController.stop();return;}
+  rtController.sync({identity:identidadSesion(data.session),projectId:ctx.project,accessToken:data.session.access_token});
+ },0);
+}
+function rtInit(){
+ const labels={inactive:'Actualización automática: sin proyecto',connecting:'Actualización automática: conectando…',connected:'Actualización automática: conectada',reconnecting:'Actualización automática: reconectando…',unavailable:'Actualización automática no disponible. Puedes actualizar manualmente.',refresh_error:'No se pudo actualizar la vista. Usa Actualizar.'};
+ rtController=CostRealtime.createCostRealtime({client:supabaseClient,onStatus:status=>{el('rtStatus').textContent=labels[status]??labels.unavailable;},
+  onRefresh:async notification=>{
+   const ctx=capturarContexto();if(!notification.isCurrent()||ctx.project!==notification.projectId)return;
+   if(!el('vistaCostos').hidden)await repLoad();
+   if(!notification.isCurrent()||!contextoVigente(ctx))return;
+   if(!el('vistaHistorial').hidden){
+    if(histIndex===0&&!histBatch)await histLoad(true);
+    else histMessage('histMessage','Hay cambios nuevos. Actualiza el historial para verlos.');
+   }
+  }});
+ window.addEventListener('pagehide',()=>rtController.stop());
+}
+
     function abrirModulo(modulo){
       for(const [name,nav] of [['sondajes','Sondajes'],['costos','Costos'],['historial','Historial']]){
         el('vista'+nav).hidden=modulo!==name;el('nav'+nav).classList.toggle('active',modulo===name);el('nav'+nav).setAttribute('aria-current',modulo===name?'page':'false');
@@ -2786,6 +2830,7 @@ function histInit(){
 
       supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
       histInit();
+rtInit();
 
       console.log("Cliente Supabase inicializado");
 
@@ -2881,7 +2926,7 @@ function histInit(){
           sesionContexto=identidad;contextoVersion++;
           limpiarCSV();costCsvClearInternal();
         }
-        mostrarSesion(sesion?.user??null);
+        mostrarSesion(sesion?.user??null);rtContextChanged();
         // getUser puede haberse adelantado al primer evento de Auth.
         if(mismoUsuario&&sesion&&!proyectosDisponibles.length)cargarProyectos();
 

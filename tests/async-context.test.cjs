@@ -42,7 +42,7 @@ function setup() {
   const rpcCalls = [];
   let authListener;
   const client = {
-    auth: { getUser: () => auth(), onAuthStateChange(fn) { authListener = fn; } },
+    auth: { getSession:async()=>({data:{session:null}}),getUser: () => auth(), onAuthStateChange(fn) { authListener = fn; } },
     from(table) {
       const filters = {};
       const meta = { orders: [], range: null, not: [], gte: {}, lte: {} };
@@ -64,9 +64,9 @@ function setup() {
     },
     rpc(name, params) { rpcCalls.push({ name, params }); return rpc(name, params); }
   };
-  const context = vm.createContext({ console: { log() {}, warn() {}, error() {} }, atob,
-    window: { confirm: () => true, supabase: { createClient: () => client } }, confirm: () => true,
-    document: { getElementById: node, createElement: () => node(Symbol()) },
+  const context = vm.createContext({ console: { log() {}, warn() {}, error() {} }, atob,setTimeout,clearTimeout,AbortController,DOMException,CostRealtime:{createCostRealtime:()=>({sync:async()=>{},stop:async()=>{}})},
+    window: { addEventListener(){},confirm: () => true, supabase: { createClient: () => client } }, confirm: () => true,
+    document: { querySelectorAll:()=>[],getElementById: node, createElement: () => node(Symbol()) },
     Option: function(text, value) { this.textContent = text; this.value = value; }
   });
   // Evaluate the actual frontend, without booting its network client.
