@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Programación de perforación</title>
+<style>body{font:16px system-ui;max-width:1100px;margin:auto;padding:18px;background:#101b27;color:#dce6ef}a{color:#7ce4cf}label{display:block;margin:12px 0}input,select,button,textarea{font:inherit;box-sizing:border-box;max-width:100%;padding:8px}textarea{width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}button{cursor:pointer}</style><p><a href="../operaciones/">Ir a operaciones y dashboard</a></p><h1>Programación de perforación</h1>
+<p><a href="../">Volver a la V1 local</a></p>
+<form id="login">
+  <label>Correo <input name="email" type="email" required></label>
+  <label>Contraseña <input name="password" type="password" required></label>
+  <button>Iniciar sesión</button>
+</form>
+<p id="status" role="status"></p>
+<main hidden>
+  <form id="projectForm">
+    <label>Nuevo proyecto <input name="p_name" required maxlength="120"></label>
+    <button>Crear proyecto</button>
+  </form>
+  <p><label>Proyecto <select id="project"></select></label></p>
+  <form id="campaignForm">
+    <label>Campaña <input name="p_name" required maxlength="120"></label>
+    <label>Zona horaria <input name="p_timezone" value="America/Lima" required></label>
+    <label>Referencia de coordenadas <input name="p_coordinates" required></label>
+    <label>Referencia de azimut <select name="p_azimuth"><option>TRUE</option><option>GRID</option><option>MAGNETIC</option></select></label>
+    <button>Crear campaña</button>
+  </form>
+  <p><label>Campaña <select id="campaign"></select></label>
+     <label>Versión aprobada <select id="version"></select></label>
+     <button id="loadVersion" type="button">Copiar versión al borrador</button></p>
+  <pre id="approved"></pre>
+  <form id="approval">
+    <p>Digita, pega desde Excel con encabezados o selecciona archivos CSV. El borrador se mantiene en esta página hasta aprobarlo.</p>
+    <p><label>Sondajes <input id="holesFile" type="file" accept=".csv"></label>
+       <a href="sondajes-plan.csv" download>Plantilla de sondajes</a><br>
+       <textarea id="holes" aria-label="Sondajes" rows="6" cols="90" required></textarea></p>
+    <p><label>Metas <input id="targetsFile" type="file" accept=".csv"></label>
+       <a href="metas-plan.csv" download>Plantilla de metas</a><br>
+       <textarea id="targets" aria-label="Metas" rows="6" cols="90" required></textarea></p>
+    <label>Motivo <input name="p_reason" maxlength="500" required></label>
+    <button>Aprobar nueva versión</button>
+  </form>
+</main>
+<script src="../operaciones/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
+<script type="module" src="planning.js"></script>
+</html>
+
+

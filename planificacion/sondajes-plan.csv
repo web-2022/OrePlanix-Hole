@@ -1,0 +1,4 @@
+hole_id,discipline,east,north,elevation,azimuth,dip,depth,starts,ends
+TEST-PLN-01,GEOLOGIA,500000,8650000,3800,90,-60,150,2026-11-09,2026-11-22
+TEST-PLN-02,GEOLOGIA,500020,8650010,3810,100,-65,120,2026-11-16,2026-11-29
+
