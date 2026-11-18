@@ -81,6 +81,6 @@ export function sheetRows(book,name,required,{onlyRequired=false}={}){
   if(nonempty){if(sheet.getRow(i).hidden)hiddenRows++;rows.push(onlyRequired?Object.fromEntries(required.map(k=>[k,values[k]])):values);}
  }
  if(!rows.length)throw Error('La hoja no contiene filas de datos');
- return {rows,hiddenRows,hiddenColumns:headers.filter(h=>sheet.getColumn(h.column).hidden).length,headers:onlyRequired?required:headers.map(h=>h.name),extras:headers.filter(h=>!required.some(k=>k.toLowerCase()===h.key)).map(h=>h.name)};
+ return {rows,hiddenRows,hiddenColumns:headers.filter(h=>sheet.getColumn(h.column).hidden&&(!onlyRequired||required.some(k=>k.toLowerCase()===h.key))).length,headers:onlyRequired?required:headers.map(h=>h.name),extras:headers.filter(h=>!required.some(k=>k.toLowerCase()===h.key)).map(h=>h.name)};
 }
 export function toCSV(rows,headers){const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';return [headers.map(quote).join(','),...rows.map(r=>headers.map(k=>quote(r[k])).join(','))].join('\n');}
