@@ -65,7 +65,7 @@ function cellText(cell,field){
  if(typeof value==='object'&&typeof value.text==='string')return value.text.trim();
  throw Error(`Celda ${cell.address}: tipo o error de Excel no admitido`);
 }
-export const OPTIONAL_HEADERS=['SampleType','MeasurementType','DepthM','ObservedAt','Reference','CertificateID','DuplicateOfResultID','CertifiedValue','CertifiedSD','DrillingHours','DowntimeHours','DowntimeReason','Comments','CoreSize'];
+export const OPTIONAL_HEADERS=['BatchID','LabCertificateID','Kind','Affects','CRM','BLANK','DUPLICATE','REPEAT','RepeatMaxAbsDiff','RepeatMaxMinutes','SampleType','MeasurementType','DepthM','ObservedAt','Reference','CertificateID','DuplicateOfResultID','CertifiedValue','CertifiedSD','DrillingHours','DowntimeHours','DowntimeReason','Comments','CoreSize'];
 export function sheetRows(book,name,required,{onlyRequired=false}={}){
  const sheet=book.getWorksheet(name);if(!sheet)throw Error('Selecciona una hoja del libro');if(sheet.state!=='visible')throw Error('No se importan hojas ocultas');
  if(sheet.rowCount>LIMITS.rows||sheet.columnCount>LIMITS.columns)throw Error('Hoja fuera de límites');
