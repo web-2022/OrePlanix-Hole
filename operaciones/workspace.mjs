@@ -1,5 +1,5 @@
 import {validateDaily,validateResult,compareProgress} from './core.mjs';
-const required={plan:['ProjectID','CampaignID','HoleID','Discipline','Date','PlannedM'],daily:['ReportLineID','ProjectID','CampaignID','HoleID','Discipline','RigID','ReportDate','Shift','Activity','FromM','ToM'],results:['ResultID','ProjectID','CampaignID','HoleID','SampleID','Discipline','FromM','ToM','Parameter','Value','Unit','Method','Laboratory']};
+export const required={plan:['ProjectID','CampaignID','HoleID','Discipline','Date','PlannedM'],daily:['ReportLineID','ProjectID','CampaignID','HoleID','Discipline','RigID','ReportDate','Shift','Activity','FromM','ToM'],results:['ResultID','ProjectID','CampaignID','HoleID','SampleID','Discipline','FromM','ToM','Parameter','Value','Unit','Method','Laboratory']};
 export function parseCSV(text,kind){
  if(!required[kind])throw Error('Tipo de archivo desconocido');
  const grid=[];let row=[],field='',quoted=false,closed=false;

@@ -1,3 +1,4 @@
+import {uploadCSV} from '../importacion/chooser.mjs';
 'use strict';
 const element = id => document.getElementById(id);
 const formData = form => Object.fromEntries(new FormData(form));
@@ -106,8 +107,7 @@ element('loadVersion').onclick = () => {
 };
 for (const id of ['holes', 'targets']) {
   element(id + 'File').onchange = run(async input => {
-    if (input.files[0]?.size > 2_000_000) throw new Error('Archivo mayor de 2 MB');
-    if (input.files[0]) element(id).value = (await input.files[0].text()).replace(/^\uFEFF/, '');
+    if (input.files[0]) {const fields=(id==='holes'?holesFields:targetFields).split(',');const text=await uploadCSV(input.files[0],fields,{onlyRequired:true});element(id).value=text.replace(/^\uFEFF/,'');return 'Hoja cargada en el borrador. Revisa antes de aprobar.';}
   });
 }
 element('approval').onsubmit = run(async form => {
