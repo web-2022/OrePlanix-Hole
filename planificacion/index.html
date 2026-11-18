@@ -28,12 +28,12 @@
      <label>Versión aprobada <select id="version"></select></label>
      <button id="loadVersion" type="button">Copiar versión al borrador</button></p>
   <pre id="approved"></pre>
-  <form id="approval">
-    <p>Digita, pega desde Excel con encabezados o selecciona archivos CSV. El borrador se mantiene en esta página hasta aprobarlo.</p>
-    <p><label>Sondajes <input id="holesFile" type="file" accept=".csv"></label>
+  <p><a href="../importacion/plantillas/campana.xlsx" download>Descargar plantilla Excel de campaña</a></p><form id="approval">
+    <p>Digita, pega desde Excel con encabezados o selecciona archivos CSV o Excel (.xlsx). En Excel, elige la hoja de sondajes y luego la de metas. El borrador se mantiene en esta página hasta aprobarlo.</p>
+    <p><label>Sondajes <input id="holesFile" type="file" accept=".csv,.xlsx"></label>
        <a href="sondajes-plan.csv" download>Plantilla de sondajes</a><br>
        <textarea id="holes" aria-label="Sondajes" rows="6" cols="90" required></textarea></p>
-    <p><label>Metas <input id="targetsFile" type="file" accept=".csv"></label>
+    <p><label>Metas <input id="targetsFile" type="file" accept=".csv,.xlsx"></label>
        <a href="metas-plan.csv" download>Plantilla de metas</a><br>
        <textarea id="targets" aria-label="Metas" rows="6" cols="90" required></textarea></p>
     <label>Motivo <input name="p_reason" maxlength="500" required></label>
@@ -43,7 +43,7 @@
 <script src="../operaciones/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
-<script type="module" src="planning.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" integrity="sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz" crossorigin="anonymous"></script><script type="module" src="planning.js"></script>
 </html>
 
 
