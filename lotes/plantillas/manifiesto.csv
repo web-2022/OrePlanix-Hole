@@ -1,0 +1,5 @@
+ResultID,SampleID,HoleID,Parameter,Unit,Kind,Affects
+N1,S1,DEMO-H,Au,g/t,NORMAL,
+N2,S2,DEMO-H,Au,g/t,NORMAL,
+B1,BLANK-1,,Au,g/t,BLANK,N1
+B2,BLANK-2,,Au,g/t,BLANK,N2

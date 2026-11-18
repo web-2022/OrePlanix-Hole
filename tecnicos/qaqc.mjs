@@ -14,7 +14,8 @@ function status(result){result.status=result.issues.some(i=>i.severity==='ERROR'
 export function evaluate(row,context={}){
  const result={original:structuredClone(row),ruleVersion:RULE_VERSION,issues:[],value:null,qualifier:null,status:'VALID'};
  const add=(code,message,severity='ERROR')=>result.issues.push({code,message,severity});
- for(const field of ['ResultID','ProjectID','CampaignID','HoleID','SampleID','Discipline','Parameter','Unit','Method','Laboratory'])if(!String(row[field]??'').trim())add('REQUIRED',`Falta ${field}`);
+ const control=row.MeasurementType==='CONTROL'&&['CRM','BLANK'].includes(row.SampleType);
+ for(const field of ['ResultID','ProjectID','CampaignID','HoleID','SampleID','Discipline','Parameter','Unit','Method','Laboratory'])if(!(field==='HoleID'&&control)&&!String(row[field]??'').trim())add('REQUIRED',`Falta ${field}`);
  if(!['GEOLOGIA','GEOMECANICA','HIDROGEOLOGIA'].includes(row.Discipline))add('DISCIPLINE','Disciplina inválida');
  const type=row.MeasurementType||'INTERVAL';
  if(type==='INTERVAL'){
@@ -27,7 +28,7 @@ export function evaluate(row,context={}){
   else if(new Date(row.ObservedAt.slice(0,10)+'T00:00:00Z').toISOString().slice(0,10)!==row.ObservedAt.slice(0,10))add('TIME','Fecha imposible');
   if(numeric(context.drilledDepth)&&Number(row.DepthM)>Number(context.drilledDepth))add('DEPTH','Observación supera profundidad perforada');
   if(String(row.FromM??'').trim()||String(row.ToM??'').trim())add('POINT_INTERVAL','Una observación puntual no lleva intervalo');
- }else add('MEASUREMENT_TYPE','Tipo de medición desconocido');
+ }else if(type==='CONTROL'){if(!control||String(row.FromM??'').trim()||String(row.ToM??'').trim())add('CONTROL_TYPE','Control de laboratorio requiere CRM o BLANK sin intervalo');}else add('MEASUREMENT_TYPE','Tipo de medición desconocido');
  const rule=rules[row.Parameter]||(row.Discipline==='GEOLOGIA'&&['ppm','ppb','%','g/t','mg/kg'].includes(row.Unit)?{min:0,max:({'%':100,ppm:1e6,ppb:1e9,'g/t':1e6,'mg/kg':1e6})[row.Unit]}:null);
  if(!rule)add('RULE_MISSING','Parámetro/unidad sin regla técnica','WARNING');
  if(rule?.discipline&&rule.discipline!==row.Discipline)add('PARAMETER_DISCIPLINE','Parámetro fuera de disciplina');

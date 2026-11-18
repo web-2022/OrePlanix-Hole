@@ -2,6 +2,9 @@ import {validateDaily,validateResult,compareProgress} from './core.mjs';
 export const required={plan:['ProjectID','CampaignID','HoleID','Discipline','Date','PlannedM'],daily:['ReportLineID','ProjectID','CampaignID','HoleID','Discipline','RigID','ReportDate','Shift','Activity','FromM','ToM'],results:['ResultID','ProjectID','CampaignID','HoleID','SampleID','Discipline','FromM','ToM','Parameter','Value','Unit','Method','Laboratory']};
 export function parseCSV(text,kind){
  if(!required[kind])throw Error('Tipo de archivo desconocido');
+ return parseTable(text,required[kind]);
+}
+export function parseTable(text,columns){
  const grid=[];let row=[],field='',quoted=false,closed=false;
  text=text.replace(/^\uFEFF/,'');
  for(let i=0;i<text.length;i++){
@@ -16,7 +19,7 @@ export function parseCSV(text,kind){
  if(!grid.length)throw Error('Archivo vacío');
  const headers=grid.shift().map(v=>v.trim());
  if(new Set(headers).size!==headers.length||headers.some(v=>!v))throw Error('Encabezados vacíos o repetidos');
- for(const name of required[kind])if(!headers.includes(name))throw Error(`Falta columna ${name}`);
+ for(const name of columns)if(!headers.includes(name))throw Error(`Falta columna ${name}`);
  return grid.map((cells,i)=>{if(cells.length!==headers.length)throw Error(`Fila ${i+2}: cantidad de columnas incorrecta`);return Object.fromEntries(headers.map((h,j)=>[h,cells[j].trim()]));});
 }
 export const scopeKey=r=>JSON.stringify([r.ProjectID,r.CampaignID,r.Discipline]);
